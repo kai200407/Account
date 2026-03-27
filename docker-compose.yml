@@ -1,0 +1,52 @@
+services:
+  # PostgreSQL 数据库
+  db:
+    image: postgres:16-alpine
+    container_name: jizhang-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jizhang
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-jizhang_secure_2024}
+      POSTGRES_DB: jizhang
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jizhang"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Next.js 应用
+  app:
+    build: .
+    container_name: jizhang-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      DATABASE_URL: postgresql://jizhang:${DB_PASSWORD:-jizhang_secure_2024}@db:5432/jizhang
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+      NEXT_PUBLIC_APP_NAME: 记账系统
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Nginx 反向代理（HTTPS）
+  nginx:
+    image: nginx:alpine
+    container_name: jizhang-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    depends_on:
+      - app
+
+volumes:
+  pgdata:

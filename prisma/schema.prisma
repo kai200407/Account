@@ -1,0 +1,261 @@
+// 记账系统 - 数据库模型
+// 支持多租户（多家店铺独立数据）
+// 开发用 SQLite，部署切换 PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// 租户与用户
+// ==========================================
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users          User[]
+  products       Product[]
+  categories     Category[]
+  suppliers      Supplier[]
+  customers      Customer[]
+  purchaseOrders PurchaseOrder[]
+  saleOrders     SaleOrder[]
+  payments       Payment[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  phone     String   @unique
+  password  String
+  name      String
+  role      String   @default("staff")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  saleOrders SaleOrder[]
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+// ==========================================
+// 商品与分类
+// ==========================================
+
+model Category {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  products Product[]
+
+  @@index([tenantId])
+  @@map("categories")
+}
+
+model Product {
+  id             String   @id @default(cuid())
+  tenantId       String   @map("tenant_id")
+  categoryId     String?  @map("category_id")
+  name           String
+  sku            String?
+  unit           String   @default("个")
+  costPrice      Decimal  @default(0) @map("cost_price")
+  wholesalePrice Decimal  @default(0) @map("wholesale_price")
+  retailPrice    Decimal  @default(0) @map("retail_price")
+  specialPrice   Decimal? @map("special_price")
+  stock          Int      @default(0)
+  lowStockAlert  Int      @default(10) @map("low_stock_alert")
+  isActive       Boolean  @default(true) @map("is_active")
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant             Tenant              @relation(fields: [tenantId], references: [id])
+  category           Category?           @relation(fields: [categoryId], references: [id])
+  purchaseOrderItems PurchaseOrderItem[]
+  saleOrderItems     SaleOrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, name])
+  @@map("products")
+}
+
+// ==========================================
+// 供应商与客户
+// ==========================================
+
+model Supplier {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  contact   String?
+  phone     String?
+  address   String?
+  balance   Decimal  @default(0)
+  notes     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  purchaseOrders PurchaseOrder[]
+  payments       Payment[]
+
+  @@index([tenantId])
+  @@map("suppliers")
+}
+
+model Customer {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  phone        String?
+  address      String?
+  customerType String   @default("retail") @map("customer_type")
+  balance      Decimal  @default(0)
+  notes        String?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  saleOrders SaleOrder[]
+  payments   Payment[]
+
+  @@index([tenantId])
+  @@map("customers")
+}
+
+// ==========================================
+// 进货单
+// ==========================================
+
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  supplierId  String   @map("supplier_id")
+  orderNo     String   @map("order_no")
+  totalAmount Decimal  @default(0) @map("total_amount")
+  paidAmount  Decimal  @default(0) @map("paid_amount")
+  status      String   @default("completed")
+  orderDate   DateTime @default(now()) @map("order_date")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id])
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, orderDate])
+  @@index([tenantId, supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String  @id @default(cuid())
+  purchaseOrderId String  @map("purchase_order_id")
+  productId       String  @map("product_id")
+  quantity        Int
+  unitPrice       Decimal @map("unit_price")
+  subtotal        Decimal
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+
+  @@index([purchaseOrderId])
+  @@map("purchase_order_items")
+}
+
+// ==========================================
+// 销售单
+// ==========================================
+
+model SaleOrder {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  customerId  String?  @map("customer_id")
+  userId      String?  @map("user_id")
+  orderNo     String   @map("order_no")
+  saleType    String   @default("retail") @map("sale_type")
+  totalAmount Decimal  @default(0) @map("total_amount")
+  paidAmount  Decimal  @default(0) @map("paid_amount")
+  profit      Decimal  @default(0)
+  status      String   @default("completed")
+  orderDate   DateTime @default(now()) @map("order_date")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id])
+  customer Customer?       @relation(fields: [customerId], references: [id])
+  user     User?           @relation(fields: [userId], references: [id])
+  items    SaleOrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, orderDate])
+  @@index([tenantId, customerId])
+  @@index([tenantId, saleType])
+  @@map("sale_orders")
+}
+
+model SaleOrderItem {
+  id          String  @id @default(cuid())
+  saleOrderId String  @map("sale_order_id")
+  productId   String  @map("product_id")
+  quantity    Int
+  unitPrice   Decimal @map("unit_price")
+  costPrice   Decimal @map("cost_price")
+  subtotal    Decimal
+  profit      Decimal @default(0)
+
+  saleOrder SaleOrder @relation(fields: [saleOrderId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@index([saleOrderId])
+  @@map("sale_order_items")
+}
+
+// ==========================================
+// 收付款记录
+// ==========================================
+
+model Payment {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  type        String
+  customerId  String?  @map("customer_id")
+  supplierId  String?  @map("supplier_id")
+  amount      Decimal
+  method      String   @default("cash")
+  notes       String?
+  paymentDate DateTime @default(now()) @map("payment_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, type])
+  @@index([tenantId, paymentDate])
+  @@map("payments")
+}
