@@ -6,8 +6,9 @@ import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Plus } from "lucide-react"
+import { Plus, XCircle } from "lucide-react"
 import Link from "next/link"
+import { toast } from "sonner"
 
 interface OrderItem {
   id: string
@@ -64,6 +65,23 @@ export function OrderList({ type }: OrderListProps) {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  async function handleCancel(order: Order) {
+    const label = isPurchase ? "进货单" : "销售单"
+    if (!confirm(`确定要取消${label} ${order.orderNo} 吗？\n取消后库存和余额将自动回滚。`)) return
+
+    const res = await api(`${apiPath}/${order.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ action: "cancel" }),
+    })
+
+    if (res.success) {
+      toast.success(`${label}已取消`)
+      fetchData()
+    } else {
+      toast.error(res.error ?? "取消失败")
+    }
+  }
+
   function formatDate(dateStr: string) {
     return new Date(dateStr).toLocaleDateString("zh-CN", {
       month: "2-digit",
@@ -101,6 +119,7 @@ export function OrderList({ type }: OrderListProps) {
               ? order.supplier?.name
               : order.customer?.name ?? "散客"
             const isCancelled = order.status === "cancelled"
+            const canCancel = isOwner && order.status === "completed"
 
             return (
               <Card key={order.id} className={isCancelled ? "opacity-50" : ""}>
@@ -127,7 +146,20 @@ export function OrderList({ type }: OrderListProps) {
                         )}
                       </div>
                     </div>
-                    <span className="text-xs text-muted-foreground">{formatDate(order.orderDate)}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-muted-foreground">{formatDate(order.orderDate)}</span>
+                      {canCancel && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-red-500"
+                          onClick={() => handleCancel(order)}
+                          title="取消订单"
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {/* 商品简列 */}
