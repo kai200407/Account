@@ -10,8 +10,44 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const search = url.searchParams.get("search") ?? ""
   const type = url.searchParams.get("type") ?? ""
+  const sort = url.searchParams.get("sort") ?? ""
+  const limit = parseInt(url.searchParams.get("limit") ?? "0")
 
   try {
+    // 按最近交易时间排序
+    if (sort === "recent") {
+      const recentCustomers = await prisma.saleOrder.groupBy({
+        by: ["customerId"],
+        where: {
+          tenantId: auth.tenantId,
+          status: "completed",
+          customerId: { not: null },
+        },
+        _max: { orderDate: true },
+        orderBy: { _max: { orderDate: "desc" } },
+        take: limit || 5,
+      })
+
+      const customerIds = recentCustomers
+        .map((r) => r.customerId)
+        .filter((id): id is string => id !== null)
+
+      if (customerIds.length > 0) {
+        const customers = await prisma.customer.findMany({
+          where: { id: { in: customerIds }, isActive: true },
+        })
+
+        // 保持最近交易排序
+        const sorted = customerIds
+          .map((id) => customers.find((c) => c.id === id))
+          .filter(Boolean)
+
+        return apiSuccess(sorted)
+      }
+
+      return apiSuccess([])
+    }
+
     const customers = await prisma.customer.findMany({
       where: {
         tenantId: auth.tenantId,

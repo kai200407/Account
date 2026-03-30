@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { Plus, Trash2, ArrowLeft } from "lucide-react"
+import { Plus, Trash2, ArrowLeft, Star, Search } from "lucide-react"
 import { toast } from "sonner"
 
 interface Product {
@@ -32,6 +32,12 @@ interface OrderItem {
   stock: number
 }
 
+interface Contact {
+  id: string
+  name: string
+  customerType?: string
+}
+
 interface OrderFormProps {
   type: "purchase" | "sale"
 }
@@ -43,7 +49,9 @@ export function OrderForm({ type }: OrderFormProps) {
 
   const [loading, setLoading] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
-  const [contacts, setContacts] = useState<Array<{ id: string; name: string; customerType?: string }>>([])
+  const [popularProducts, setPopularProducts] = useState<Product[]>([])
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [recentContacts, setRecentContacts] = useState<Contact[]>([])
   const [saleType, setSaleType] = useState<"wholesale" | "retail">("retail")
 
   // 表单
@@ -55,8 +63,10 @@ export function OrderForm({ type }: OrderFormProps) {
   // 商品搜索
   const [searchText, setSearchText] = useState("")
   const [showSearch, setShowSearch] = useState(false)
+  const [productTab, setProductTab] = useState<"popular" | "search">("popular")
 
   useEffect(() => {
+    // 加载所有商品
     api<Product[]>("/api/products?limit=200").then((res) => {
       if (res.success && res.data) {
         const list = "items" in res.data ? (res.data as unknown as { items: Product[] }).items : res.data
@@ -64,10 +74,26 @@ export function OrderForm({ type }: OrderFormProps) {
       }
     })
 
+    // 加载常用商品（按销量排序前20）
+    api<{ items: Product[] }>("/api/products?sort=popular&limit=20").then((res) => {
+      if (res.success && res.data) {
+        const list = res.data.items ?? res.data
+        setPopularProducts(Array.isArray(list) ? list : [])
+      }
+    })
+
+    // 加载全部联系人
     const contactApi = isPurchase ? "/api/suppliers" : "/api/customers"
-    api<Array<{ id: string; name: string; customerType?: string }>>(contactApi).then((res) => {
+    api<Contact[]>(contactApi).then((res) => {
       if (res.success && res.data) setContacts(res.data)
     })
+
+    // 加载最近客户/供应商
+    if (!isPurchase) {
+      api<Contact[]>("/api/customers?sort=recent&limit=5").then((res) => {
+        if (res.success && res.data) setRecentContacts(res.data)
+      })
+    }
   }, [isPurchase])
 
   const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0)
@@ -75,13 +101,11 @@ export function OrderForm({ type }: OrderFormProps) {
   const unpaid = totalAmount - paid
 
   function addProduct(product: Product) {
-    // 检查是否已添加
     if (items.some((i) => i.productId === product.id)) {
       toast.error("该商品已添加")
       return
     }
 
-    // 根据销售类型选择价格
     let defaultPrice = Number(product.costPrice)
     if (!isPurchase) {
       defaultPrice = saleType === "wholesale"
@@ -117,7 +141,6 @@ export function OrderForm({ type }: OrderFormProps) {
     setItems(items.filter((_, i) => i !== index))
   }
 
-  // 切换批发/零售时自动更新价格
   const handleSaleTypeChange = useCallback((newType: "wholesale" | "retail") => {
     setSaleType(newType)
     setItems((prev) =>
@@ -182,6 +205,9 @@ export function OrderForm({ type }: OrderFormProps) {
     )
   })
 
+  // 选择要展示的商品列表
+  const displayProducts = productTab === "popular" ? popularProducts : filteredProducts
+
   return (
     <div className="space-y-4 max-w-lg mx-auto">
       {/* 顶部 */}
@@ -197,6 +223,26 @@ export function OrderForm({ type }: OrderFormProps) {
         <CardContent className="p-3 space-y-3">
           <div className="space-y-1.5">
             <Label>{isPurchase ? "供应商" : "客户"}（{isPurchase ? "必选" : "散客可不选"}）</Label>
+
+            {/* 最近客户快捷选择 */}
+            {!isPurchase && recentContacts.length > 0 && !contactId && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                <span className="text-xs text-muted-foreground leading-7">最近:</span>
+                {recentContacts.map((c) => (
+                  <Button
+                    key={c.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setContactId(c.id)}
+                  >
+                    {c.name}
+                  </Button>
+                ))}
+              </div>
+            )}
+
             <select
               value={contactId}
               onChange={(e) => setContactId(e.target.value)}
@@ -251,33 +297,70 @@ export function OrderForm({ type }: OrderFormProps) {
             </Button>
           </div>
 
-          {/* 商品搜索面板 */}
+          {/* 商品选择面板 — 常用 + 搜索 两个 tab */}
           {showSearch && (
             <div className="mb-3 p-2 bg-gray-50 rounded-lg space-y-2">
-              <Input
-                placeholder="搜索商品名称或编号..."
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                className="h-10"
-                autoFocus
-              />
-              <div className="max-h-40 overflow-y-auto space-y-1">
-                {filteredProducts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-2">没有找到商品</p>
+              {/* Tab 切换 */}
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  variant={productTab === "popular" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs flex-1"
+                  onClick={() => setProductTab("popular")}
+                >
+                  <Star className="h-3 w-3 mr-1" />
+                  常用
+                </Button>
+                <Button
+                  type="button"
+                  variant={productTab === "search" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-7 text-xs flex-1"
+                  onClick={() => setProductTab("search")}
+                >
+                  <Search className="h-3 w-3 mr-1" />
+                  搜索
+                </Button>
+              </div>
+
+              {/* 搜索框（仅搜索 tab 显示） */}
+              {productTab === "search" && (
+                <Input
+                  placeholder="搜索商品名称或编号..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className="h-10"
+                  autoFocus
+                />
+              )}
+
+              {/* 商品列表 */}
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {displayProducts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    {productTab === "popular" ? "暂无常用商品，请使用搜索" : "没有找到商品"}
+                  </p>
                 ) : (
-                  filteredProducts.slice(0, 20).map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className="w-full text-left px-2 py-1.5 rounded hover:bg-white text-sm flex justify-between"
-                      onClick={() => addProduct(p)}
-                    >
-                      <span className="truncate">{p.name}</span>
-                      <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                        库存:{p.stock}{p.unit}
-                      </span>
-                    </button>
-                  ))
+                  displayProducts.slice(0, 20).map((p) => {
+                    const isAdded = items.some((i) => i.productId === p.id)
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`w-full text-left px-2 py-1.5 rounded text-sm flex justify-between ${
+                          isAdded ? "opacity-40 cursor-not-allowed" : "hover:bg-white"
+                        }`}
+                        onClick={() => !isAdded && addProduct(p)}
+                        disabled={isAdded}
+                      >
+                        <span className="truncate">{p.name}</span>
+                        <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                          {isAdded ? "已添加" : `库存:${p.stock}${p.unit}`}
+                        </span>
+                      </button>
+                    )
+                  })
                 )}
               </div>
             </div>
