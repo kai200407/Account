@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { ProductForm } from "@/components/product-form"
 import { Plus, Search, Pencil, Trash2 } from "lucide-react"
 import { toast } from "sonner"
+import Image from "next/image"
 
 interface Category {
   id: string
@@ -29,6 +30,7 @@ interface Product {
   stock: number
   lowStockAlert: number
   notes: string | null
+  imageUrl?: string | null
   category: Category | null
 }
 
@@ -155,8 +157,26 @@ export default function ProductsPage() {
             <Card key={product.id}>
               <CardContent className="p-3">
                 <div className="flex items-start justify-between gap-2">
-                  {/* 左侧：商品信息 */}
-                  <div className="flex-1 min-w-0">
+                  {/* 左侧：缩略图 + 商品信息 */}
+                  <div className="flex gap-3 flex-1 min-w-0">
+                    {/* 缩略图 */}
+                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                      {product.imageUrl ? (
+                        <Image
+                          src={product.imageUrl}
+                          alt={product.name}
+                          width={48}
+                          height={48}
+                          className="object-cover w-full h-full"
+                        />
+                      ) : (
+                        <span className="text-lg font-bold text-gray-400">
+                          {product.name.charAt(0)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium truncate">{product.name}</span>
                       {product.category && (
@@ -185,6 +205,7 @@ export default function ProductsPage() {
                         库存: {product.stock}{product.unit}
                         {product.stock <= product.lowStockAlert && " ⚠️ 库存不足"}
                       </span>
+                    </div>
                     </div>
                   </div>
 

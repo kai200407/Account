@@ -74,6 +74,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         stock: body.stock ?? existing.stock,
         lowStockAlert: body.lowStockAlert ?? existing.lowStockAlert,
         notes: body.notes !== undefined ? body.notes || null : existing.notes,
+        imageUrl: body.imageUrl !== undefined ? body.imageUrl || null : existing.imageUrl,
       },
       include: { category: true },
     })

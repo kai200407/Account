@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { name, sku, unit, categoryId, costPrice, wholesalePrice, retailPrice, specialPrice, stock, lowStockAlert, notes } = body
+    const { name, sku, unit, categoryId, costPrice, wholesalePrice, retailPrice, specialPrice, stock, lowStockAlert, notes, imageUrl } = body
 
     if (!name) {
       return apiError("商品名称不能为空")
@@ -138,6 +138,7 @@ export async function POST(request: NextRequest) {
         specialPrice: specialPrice ?? null,
         stock: stock ?? 0,
         lowStockAlert: lowStockAlert ?? 10,
+        imageUrl: imageUrl || null,
         notes: notes || null,
       },
       include: { category: true },

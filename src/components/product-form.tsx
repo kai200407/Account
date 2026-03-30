@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { api } from "@/lib/api-client"
+import { useState, useEffect, useRef } from "react"
+import { api, getToken } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { Camera, X } from "lucide-react"
+import Image from "next/image"
 
 interface Category {
   id: string
@@ -31,6 +33,7 @@ interface Product {
   stock: number
   lowStockAlert: number
   notes: string | null
+  imageUrl?: string | null
 }
 
 interface ProductFormProps {
@@ -44,6 +47,7 @@ interface ProductFormProps {
 export function ProductForm({ open, onClose, onSaved, product, isOwner = true }: ProductFormProps) {
   const [loading, setLoading] = useState(false)
   const [categories, setCategories] = useState<Category[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [name, setName] = useState("")
   const [sku, setSku] = useState("")
@@ -56,6 +60,8 @@ export function ProductForm({ open, onClose, onSaved, product, isOwner = true }:
   const [stock, setStock] = useState("")
   const [lowStockAlert, setLowStockAlert] = useState("10")
   const [notes, setNotes] = useState("")
+  const [imageUrl, setImageUrl] = useState("")
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -75,6 +81,7 @@ export function ProductForm({ open, onClose, onSaved, product, isOwner = true }:
         setStock(String(product.stock))
         setLowStockAlert(String(product.lowStockAlert))
         setNotes(product.notes ?? "")
+        setImageUrl(product.imageUrl ?? "")
       } else {
         setName("")
         setSku("")
@@ -87,9 +94,45 @@ export function ProductForm({ open, onClose, onSaved, product, isOwner = true }:
         setStock("")
         setLowStockAlert("10")
         setNotes("")
+        setImageUrl("")
       }
     }
   }, [open, product])
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("图片不能超过 2MB")
+      return
+    }
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const token = getToken()
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        setImageUrl(data.data.imageUrl)
+      } else {
+        toast.error(data.error || "上传失败")
+      }
+    } catch {
+      toast.error("上传失败")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -111,9 +154,9 @@ export function ProductForm({ open, onClose, onSaved, product, isOwner = true }:
         stock: parseInt(stock) || 0,
         lowStockAlert: parseInt(lowStockAlert) || 10,
         notes: notes.trim() || null,
+        imageUrl: imageUrl || null,
       }
 
-      // 仅 owner 可以设置进价
       if (isOwner) {
         data.costPrice = parseFloat(costPrice) || 0
       }
@@ -146,7 +189,7 @@ export function ProductForm({ open, onClose, onSaved, product, isOwner = true }:
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* 商品名称 - 必填 */}
+          {/* 商品名称 */}
           <div className="space-y-1.5">
             <Label>商品名称 *</Label>
             <Input
@@ -156,6 +199,57 @@ export function ProductForm({ open, onClose, onSaved, product, isOwner = true }:
               className="h-11"
               required
             />
+          </div>
+
+          {/* 商品图片 */}
+          <div className="space-y-1.5">
+            <Label>商品图片</Label>
+            <div className="flex items-center gap-3">
+              {imageUrl ? (
+                <div className="relative w-16 h-16 rounded-lg overflow-hidden border">
+                  <Image
+                    src={imageUrl}
+                    alt="商品图片"
+                    fill
+                    className="object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setImageUrl("")}
+                    className="absolute top-0 right-0 bg-black/50 rounded-bl p-0.5"
+                  >
+                    <X className="h-3 w-3 text-white" />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-16 h-16 rounded-lg border-2 border-dashed flex items-center justify-center cursor-pointer hover:bg-gray-50"
+                >
+                  <Camera className="h-6 w-6 text-muted-foreground" />
+                </div>
+              )}
+              <div className="flex-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  {uploading ? "上传中..." : imageUrl ? "更换图片" : "拍照/选图"}
+                </Button>
+                <p className="text-xs text-muted-foreground mt-1">JPG/PNG/WebP，最大 2MB</p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+            </div>
           </div>
 
           {/* 分类 + 编号 */}
@@ -184,8 +278,8 @@ export function ProductForm({ open, onClose, onSaved, product, isOwner = true }:
             </div>
           </div>
 
-          {/* 价格区域 — staff 看不到进价 */}
-          <div className={`grid gap-3 ${isOwner ? "grid-cols-2" : "grid-cols-2"}`}>
+          {/* 价格区域 */}
+          <div className="grid grid-cols-2 gap-3">
             {isOwner && (
               <div className="space-y-1.5">
                 <Label>进价 (¥)</Label>

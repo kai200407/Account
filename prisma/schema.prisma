@@ -84,6 +84,7 @@ model Product {
   specialPrice   Decimal? @map("special_price")
   stock          Int      @default(0)
   lowStockAlert  Int      @default(10) @map("low_stock_alert")
+  imageUrl       String?  @map("image_url")
   isActive       Boolean  @default(true) @map("is_active")
   notes          String?
   createdAt      DateTime @default(now()) @map("created_at")
