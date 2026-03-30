@@ -1,15 +1,16 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { api } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { Plus, Trash2, ArrowLeft, Star, Search } from "lucide-react"
+import { Trash2, ArrowLeft, Star, Search, ShoppingCart, Minus, Plus, ChevronUp, ChevronDown } from "lucide-react"
 import { toast } from "sonner"
+import { ProductGrid } from "@/components/product-grid"
 
 interface Product {
   id: string
@@ -20,6 +21,8 @@ interface Product {
   wholesalePrice: number
   retailPrice: number
   stock: number
+  imageUrl?: string | null
+  category?: { name: string } | null
 }
 
 interface OrderItem {
@@ -44,6 +47,7 @@ interface OrderFormProps {
 
 export function OrderForm({ type }: OrderFormProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const isPurchase = type === "purchase"
   const title = isPurchase ? "新建进货单" : "新建销售单"
 
@@ -60,10 +64,18 @@ export function OrderForm({ type }: OrderFormProps) {
   const [paidAmount, setPaidAmount] = useState("")
   const [notes, setNotes] = useState("")
 
-  // 商品搜索
+  // 商品搜索 & Tab
   const [searchText, setSearchText] = useState("")
-  const [showSearch, setShowSearch] = useState(false)
-  const [productTab, setProductTab] = useState<"popular" | "search">("popular")
+  const [productTab, setProductTab] = useState<"popular" | "all">("popular")
+
+  // 购物车展开状态
+  const [cartExpanded, setCartExpanded] = useState(false)
+
+  // 已添加商品的数量映射（用于网格 badge）
+  const selectedQuantities: Record<string, number> = {}
+  items.forEach((item) => {
+    selectedQuantities[item.productId] = item.quantity
+  })
 
   useEffect(() => {
     // 加载所有商品
@@ -74,7 +86,7 @@ export function OrderForm({ type }: OrderFormProps) {
       }
     })
 
-    // 加载常用商品（按销量排序前20）
+    // 加载常用商品
     api<{ items: Product[] }>("/api/products?sort=popular&limit=20").then((res) => {
       if (res.success && res.data) {
         const list = res.data.items ?? res.data
@@ -88,7 +100,7 @@ export function OrderForm({ type }: OrderFormProps) {
       if (res.success && res.data) setContacts(res.data)
     })
 
-    // 加载最近客户/供应商
+    // 加载最近客户
     if (!isPurchase) {
       api<Contact[]>("/api/customers?sort=recent&limit=5").then((res) => {
         if (res.success && res.data) setRecentContacts(res.data)
@@ -96,64 +108,89 @@ export function OrderForm({ type }: OrderFormProps) {
     }
   }, [isPurchase])
 
+  // URL 参数自动预添加商品
+  useEffect(() => {
+    const productId = searchParams.get("productId")
+    if (productId && products.length > 0 && items.length === 0) {
+      const product = products.find((p) => p.id === productId)
+      if (product) {
+        tapProduct(product)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, products])
+
   const totalAmount = items.reduce((sum, item) => sum + item.subtotal, 0)
+  const totalItems = items.reduce((sum, item) => sum + item.quantity, 0)
   const paid = parseFloat(paidAmount) || 0
   const unpaid = totalAmount - paid
 
-  function addProduct(product: Product) {
-    if (items.some((i) => i.productId === product.id)) {
-      toast.error("该商品已添加")
-      return
-    }
+  function getDefaultPrice(product: Product): number {
+    if (isPurchase) return Number(product.costPrice)
+    return saleType === "wholesale"
+      ? Number(product.wholesalePrice)
+      : Number(product.retailPrice)
+  }
 
-    let defaultPrice = Number(product.costPrice)
-    if (!isPurchase) {
-      defaultPrice = saleType === "wholesale"
-        ? Number(product.wholesalePrice)
-        : Number(product.retailPrice)
-    }
-
-    const newItem: OrderItem = {
-      productId: product.id,
-      productName: product.name,
-      unit: product.unit,
-      quantity: 1,
-      unitPrice: defaultPrice,
-      subtotal: defaultPrice,
-      stock: product.stock,
-    }
-
-    setItems([...items, newItem])
-    setShowSearch(false)
-    setSearchText("")
+  function tapProduct(product: Product) {
+    setItems((prev) => {
+      const existing = prev.find((i) => i.productId === product.id)
+      if (existing) {
+        // 数量+1
+        return prev.map((i) =>
+          i.productId === product.id
+            ? { ...i, quantity: i.quantity + 1, subtotal: (i.quantity + 1) * i.unitPrice }
+            : i
+        )
+      }
+      // 新增
+      const price = getDefaultPrice(product)
+      return [
+        ...prev,
+        {
+          productId: product.id,
+          productName: product.name,
+          unit: product.unit,
+          quantity: 1,
+          unitPrice: price,
+          subtotal: price,
+          stock: product.stock,
+        },
+      ]
+    })
   }
 
   function updateItem(index: number, field: "quantity" | "unitPrice", value: number) {
-    const updated = items.map((item, i) => {
-      if (i !== index) return item
-      const newItem = { ...item, [field]: value }
-      return { ...newItem, subtotal: newItem.quantity * newItem.unitPrice }
-    })
-    setItems(updated)
+    setItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item
+        const newItem = { ...item, [field]: value }
+        return { ...newItem, subtotal: newItem.quantity * newItem.unitPrice }
+      })
+    )
   }
 
   function removeItem(index: number) {
-    setItems(items.filter((_, i) => i !== index))
+    setItems((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const handleSaleTypeChange = useCallback((newType: "wholesale" | "retail") => {
-    setSaleType(newType)
-    setItems((prev) =>
-      prev.map((item) => {
-        const product = products.find((p) => p.id === item.productId)
-        if (!product) return item
-        const newPrice = newType === "wholesale"
-          ? Number(product.wholesalePrice)
-          : Number(product.retailPrice)
-        return { ...item, unitPrice: newPrice, subtotal: item.quantity * newPrice }
-      })
-    )
-  }, [products])
+  const handleSaleTypeChange = useCallback(
+    (newType: "wholesale" | "retail") => {
+      setSaleType(newType)
+      setItems((prev) =>
+        prev.map((item) => {
+          const product = products.find((p) => p.id === item.productId)
+          if (!product) return item
+          const newPrice =
+            newType === "wholesale"
+              ? Number(product.wholesalePrice)
+              : Number(product.retailPrice)
+          return { ...item, unitPrice: newPrice, subtotal: item.quantity * newPrice }
+        })
+      )
+    },
+    [products]
+  )
 
   async function handleSubmit() {
     if (isPurchase && !contactId) {
@@ -197,72 +234,42 @@ export function OrderForm({ type }: OrderFormProps) {
     }
   }
 
-  const filteredProducts = products.filter((p) => {
-    if (!searchText) return true
-    return (
-      p.name.includes(searchText) ||
-      (p.sku && p.sku.includes(searchText))
-    )
-  })
+  // 过滤商品（搜索）
+  const filteredProducts = searchText
+    ? products.filter(
+        (p) => p.name.includes(searchText) || (p.sku && p.sku.includes(searchText))
+      )
+    : products
 
-  // 选择要展示的商品列表
-  const displayProducts = productTab === "popular" ? popularProducts : filteredProducts
+  // 展示的商品列表
+  const displayProducts = searchText
+    ? filteredProducts
+    : productTab === "popular"
+      ? popularProducts
+      : products
+
+  const priceType = isPurchase ? "cost" as const : saleType
 
   return (
-    <div className="space-y-4 max-w-lg mx-auto">
+    <div className="space-y-3 max-w-lg mx-auto pb-32">
       {/* 顶部 */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={() => router.back()}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h2 className="text-xl font-bold">{title}</h2>
+        <h2 className="text-xl font-bold flex-1">{title}</h2>
       </div>
 
-      {/* 选择供应商/客户 + 销售类型 */}
+      {/* 一行：类型切换 + 客户/供应商 */}
       <Card>
         <CardContent className="p-3 space-y-3">
-          <div className="space-y-1.5">
-            <Label>{isPurchase ? "供应商" : "客户"}（{isPurchase ? "必选" : "散客可不选"}）</Label>
-
-            {/* 最近客户快捷选择 */}
-            {!isPurchase && recentContacts.length > 0 && !contactId && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                <span className="text-xs text-muted-foreground leading-7">最近:</span>
-                {recentContacts.map((c) => (
-                  <Button
-                    key={c.id}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setContactId(c.id)}
-                  >
-                    {c.name}
-                  </Button>
-                ))}
-              </div>
-            )}
-
-            <select
-              value={contactId}
-              onChange={(e) => setContactId(e.target.value)}
-              className="h-11 w-full rounded-md border px-3 text-sm"
-            >
-              <option value="">{isPurchase ? "请选择供应商" : "散客（不选）"}</option>
-              {contacts.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
           {!isPurchase && (
-            <div className="space-y-1.5">
-              <Label>销售类型</Label>
-              <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              <div className="flex gap-1 shrink-0">
                 <Button
                   type="button"
                   variant={saleType === "retail" ? "default" : "outline"}
-                  className="flex-1 h-10"
+                  size="sm"
                   onClick={() => handleSaleTypeChange("retail")}
                 >
                   零售
@@ -270,113 +277,196 @@ export function OrderForm({ type }: OrderFormProps) {
                 <Button
                   type="button"
                   variant={saleType === "wholesale" ? "default" : "outline"}
-                  className="flex-1 h-10"
+                  size="sm"
                   onClick={() => handleSaleTypeChange("wholesale")}
                 >
                   批发
                 </Button>
               </div>
+              <select
+                value={contactId}
+                onChange={(e) => setContactId(e.target.value)}
+                className="h-9 flex-1 rounded-md border px-2 text-sm"
+              >
+                <option value="">散客</option>
+                {contacts.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* 最近客户快捷选择 */}
+          {!isPurchase && recentContacts.length > 0 && !contactId && (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-xs text-muted-foreground leading-7">最近:</span>
+              {recentContacts.map((c) => (
+                <Button
+                  key={c.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setContactId(c.id)}
+                >
+                  {c.name}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {isPurchase && (
+            <div>
+              <Label>供应商 *</Label>
+              <select
+                value={contactId}
+                onChange={(e) => setContactId(e.target.value)}
+                className="h-11 w-full rounded-md border px-3 text-sm mt-1"
+              >
+                <option value="">请选择供应商</option>
+                {contacts.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* 添加商品 */}
-      <Card>
-        <CardContent className="p-3">
-          <div className="flex items-center justify-between mb-2">
-            <Label className="text-sm font-medium">商品明细</Label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowSearch(!showSearch)}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              添加商品
-            </Button>
-          </div>
+      {/* Tab + 搜索 */}
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant={productTab === "popular" && !searchText ? "default" : "outline"}
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => {
+            setProductTab("popular")
+            setSearchText("")
+          }}
+        >
+          <Star className="h-3 w-3 mr-1" />
+          常用
+        </Button>
+        <Button
+          type="button"
+          variant={productTab === "all" && !searchText ? "default" : "outline"}
+          size="sm"
+          className="h-8 text-xs"
+          onClick={() => {
+            setProductTab("all")
+            setSearchText("")
+          }}
+        >
+          全部
+        </Button>
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            placeholder="搜索商品..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            className="h-8 pl-7 text-xs"
+          />
+        </div>
+      </div>
 
-          {/* 商品选择面板 — 常用 + 搜索 两个 tab */}
-          {showSearch && (
-            <div className="mb-3 p-2 bg-gray-50 rounded-lg space-y-2">
-              {/* Tab 切换 */}
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  variant={productTab === "popular" ? "default" : "ghost"}
-                  size="sm"
-                  className="h-7 text-xs flex-1"
-                  onClick={() => setProductTab("popular")}
-                >
-                  <Star className="h-3 w-3 mr-1" />
-                  常用
-                </Button>
-                <Button
-                  type="button"
-                  variant={productTab === "search" ? "default" : "ghost"}
-                  size="sm"
-                  className="h-7 text-xs flex-1"
-                  onClick={() => setProductTab("search")}
-                >
-                  <Search className="h-3 w-3 mr-1" />
-                  搜索
-                </Button>
-              </div>
+      {/* 商品网格 */}
+      <ProductGrid
+        products={displayProducts}
+        onTap={(p) => {
+          const fullProduct = products.find((fp) => fp.id === p.id)
+          if (fullProduct) tapProduct(fullProduct)
+        }}
+        selectedQuantities={selectedQuantities}
+        priceType={priceType}
+      />
 
-              {/* 搜索框（仅搜索 tab 显示） */}
-              {productTab === "search" && (
-                <Input
-                  placeholder="搜索商品名称或编号..."
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  className="h-10"
-                  autoFocus
-                />
-              )}
-
-              {/* 商品列表 */}
-              <div className="max-h-48 overflow-y-auto space-y-1">
-                {displayProducts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-2">
-                    {productTab === "popular" ? "暂无常用商品，请使用搜索" : "没有找到商品"}
-                  </p>
-                ) : (
-                  displayProducts.slice(0, 20).map((p) => {
-                    const isAdded = items.some((i) => i.productId === p.id)
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={`w-full text-left px-2 py-1.5 rounded text-sm flex justify-between ${
-                          isAdded ? "opacity-40 cursor-not-allowed" : "hover:bg-white"
-                        }`}
-                        onClick={() => !isAdded && addProduct(p)}
-                        disabled={isAdded}
-                      >
-                        <span className="truncate">{p.name}</span>
-                        <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                          {isAdded ? "已添加" : `库存:${p.stock}${p.unit}`}
-                        </span>
-                      </button>
-                    )
-                  })
-                )}
-              </div>
+      {/* 底部悬浮购物车摘要 */}
+      {items.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 md:left-56 bg-white border-t shadow-lg z-40">
+          {/* 摘要栏 */}
+          <button
+            type="button"
+            onClick={() => setCartExpanded(!cartExpanded)}
+            className="w-full flex items-center justify-between px-4 py-3"
+          >
+            <div className="flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 text-primary" />
+              <span className="font-medium">
+                {totalItems}件 ¥{totalAmount.toFixed(2)}
+              </span>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-primary font-medium">
+                {cartExpanded ? "收起" : "查看购物车"}
+              </span>
+              {cartExpanded ? (
+                <ChevronDown className="h-4 w-4 text-primary" />
+              ) : (
+                <ChevronUp className="h-4 w-4 text-primary" />
+              )}
+            </div>
+          </button>
 
-          {/* 已添加的商品列表 */}
-          {items.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              请点击「添加商品」选择商品
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {items.map((item, index) => (
-                <div key={item.productId} className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium truncate flex-1">{item.productName}</span>
+          {/* 展开的购物车详情 */}
+          {cartExpanded && (
+            <div className="border-t px-4 pb-4 max-h-[60vh] overflow-y-auto">
+              <div className="space-y-2 py-3">
+                {items.map((item, index) => (
+                  <div key={item.productId} className="flex items-center gap-2">
+                    <span className="text-sm flex-1 truncate">{item.productName}</span>
+
+                    {/* 数量控制 */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => {
+                          if (item.quantity <= 1) {
+                            removeItem(index)
+                          } else {
+                            updateItem(index, "quantity", item.quantity - 1)
+                          }
+                        }}
+                      >
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.quantity}
+                        onChange={(e) => updateItem(index, "quantity", parseInt(e.target.value) || 1)}
+                        className="h-7 w-12 text-center text-sm px-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => updateItem(index, "quantity", item.quantity + 1)}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+
+                    {/* 单价 */}
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={item.unitPrice}
+                      onChange={(e) => updateItem(index, "unitPrice", parseFloat(e.target.value) || 0)}
+                      className="h-7 w-16 text-sm text-right px-1"
+                    />
+
+                    {/* 小计 */}
+                    <span className="text-sm font-medium w-16 text-right shrink-0">
+                      ¥{item.subtotal.toFixed(0)}
+                    </span>
+
                     <Button
                       type="button"
                       variant="ghost"
@@ -386,92 +476,66 @@ export function OrderForm({ type }: OrderFormProps) {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
+
+                    {!isPurchase && item.stock < item.quantity && (
+                      <span className="text-[10px] text-red-500 absolute">⚠️</span>
+                    )}
                   </div>
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <Label className="text-xs">数量({item.unit})</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={item.quantity}
-                        onChange={(e) => updateItem(index, "quantity", parseInt(e.target.value) || 0)}
-                        className="h-9 text-sm"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Label className="text-xs">单价(¥)</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        value={item.unitPrice}
-                        onChange={(e) => updateItem(index, "unitPrice", parseFloat(e.target.value) || 0)}
-                        className="h-9 text-sm"
-                      />
-                    </div>
-                    <div className="w-20 text-right">
-                      <Label className="text-xs">小计</Label>
-                      <p className="h-9 leading-9 text-sm font-medium">¥{item.subtotal.toFixed(2)}</p>
-                    </div>
-                  </div>
-                  {!isPurchase && item.stock < item.quantity && (
-                    <p className="text-xs text-red-500">⚠️ 库存不足（当前:{item.stock}）</p>
-                  )}
-                  {index < items.length - 1 && <Separator />}
+                ))}
+              </div>
+
+              <Separator />
+
+              {/* 付款 + 提交 */}
+              <div className="space-y-3 pt-3">
+                <div className="flex items-center gap-3">
+                  <Label className="shrink-0 text-sm">{isPurchase ? "本次付款" : "本次收款"}</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={paidAmount}
+                    onChange={(e) => setPaidAmount(e.target.value)}
+                    placeholder={totalAmount.toFixed(2)}
+                    className="h-9 flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => setPaidAmount(totalAmount.toFixed(2))}
+                  >
+                    全额
+                  </Button>
                 </div>
-              ))}
+
+                {unpaid > 0 && paid > 0 && (
+                  <p className="text-sm text-orange-600">
+                    {isPurchase ? "欠供应商" : "客户赊账"}: ¥{unpaid.toFixed(2)}
+                  </p>
+                )}
+
+                <Input
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="备注（可选）"
+                  className="h-9"
+                />
+
+                <Button
+                  className="w-full h-12 text-base"
+                  onClick={handleSubmit}
+                  disabled={loading}
+                >
+                  {loading
+                    ? "提交中..."
+                    : `确认${isPurchase ? "进货" : "销售"} ¥${totalAmount.toFixed(2)}`}
+                </Button>
+              </div>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* 金额 + 付款 */}
-      {items.length > 0 && (
-        <Card>
-          <CardContent className="p-3 space-y-3">
-            <div className="flex justify-between text-lg font-bold">
-              <span>总金额</span>
-              <span>¥{totalAmount.toFixed(2)}</span>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>{isPurchase ? "本次付款" : "本次收款"} (¥)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min={0}
-                value={paidAmount}
-                onChange={(e) => setPaidAmount(e.target.value)}
-                placeholder={`最多 ${totalAmount.toFixed(2)}`}
-                className="h-11"
-              />
-            </div>
-
-            {unpaid > 0 && (
-              <p className="text-sm text-orange-600">
-                {isPurchase ? "本次欠供应商" : "客户本次赊账"}: ¥{unpaid.toFixed(2)}
-              </p>
-            )}
-
-            <div className="space-y-1.5">
-              <Label>备注</Label>
-              <Input
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="可选"
-                className="h-11"
-              />
-            </div>
-
-            <Button
-              className="w-full h-12 text-base"
-              onClick={handleSubmit}
-              disabled={loading}
-            >
-              {loading ? "提交中..." : `确认${isPurchase ? "进货" : "销售"}`}
-            </Button>
-          </CardContent>
-        </Card>
+        </div>
       )}
     </div>
   )
