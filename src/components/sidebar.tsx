@@ -33,7 +33,7 @@ const navItems = [
 
 // owner 专属导航
 const ownerNavItems = [
-  { href: "/settings/audit", label: "设置", icon: Settings },
+  { href: "/settings/staff", label: "设置", icon: Settings },
 ]
 
 // 手机底部只显示最常用的5个
