@@ -167,7 +167,7 @@ export default function PaymentsPage() {
         <div className="grid grid-cols-2 gap-3">
           <Card>
             <CardContent className="p-3 text-center">
-              <p className="text-xs text-muted-foreground">应收款（客户欠我）</p>
+              <p className="text-xs text-muted-foreground">客户欠款</p>
               <p className="text-xl font-bold text-orange-600">
                 ¥{summary.totalReceivable.toFixed(2)}
               </p>
@@ -176,7 +176,7 @@ export default function PaymentsPage() {
           </Card>
           <Card>
             <CardContent className="p-3 text-center">
-              <p className="text-xs text-muted-foreground">应付款（我欠供应商）</p>
+              <p className="text-xs text-muted-foreground">供应商欠款</p>
               <p className="text-xl font-bold text-red-600">
                 ¥{summary.totalPayable.toFixed(2)}
               </p>

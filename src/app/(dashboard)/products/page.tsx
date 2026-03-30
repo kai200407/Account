@@ -116,7 +116,7 @@ export default function ProductsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="搜索商品名称或编号..."
+            placeholder="搜索商品名称或货号..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
@@ -167,7 +167,7 @@ export default function ProductsPage() {
                     </div>
 
                     {product.sku && (
-                      <p className="text-xs text-muted-foreground mb-1">编号: {product.sku}</p>
+                      <p className="text-xs text-muted-foreground mb-1">货号: {product.sku}</p>
                     )}
 
                     {/* 价格行 — staff 看不到进价 */}
