@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const tid = auth.tenantId
 
     // 并行查询
-    const [todaySales, todayPurchases, lowStockProducts, recentSales, totalReceivable, totalPayable] = await Promise.all([
+    const [todaySales, todayPurchases, lowStockProducts, recentSales, totalReceivable, totalPayable, popularProductIds] = await Promise.all([
       // 今日销售
       prisma.saleOrder.findMany({
         where: { tenantId: tid, status: "completed", orderDate: todayFilter },
@@ -49,11 +49,45 @@ export async function GET(request: NextRequest) {
         where: { tenantId: tid, isActive: true, balance: { gt: 0 } },
         _sum: { balance: true },
       }),
+      // 热门商品（近30天销量前8）
+      prisma.saleOrderItem.groupBy({
+        by: ["productId"],
+        _sum: { quantity: true },
+        where: {
+          saleOrder: {
+            tenantId: tid,
+            status: "completed",
+            orderDate: { gte: new Date(Date.now() - 30 * 86400000) },
+          },
+        },
+        orderBy: { _sum: { quantity: "desc" } },
+        take: 8,
+      }),
     ])
 
     const todayRevenue = todaySales.reduce((s, o) => s + Number(o.totalAmount), 0)
     const todayProfit = todaySales.reduce((s, o) => s + Number(o.profit), 0)
     const todayPurchaseTotal = todayPurchases.reduce((s, o) => s + Number(o.totalAmount), 0)
+
+    // 获取热门商品详情
+    const popularIds = popularProductIds.map((p) => p.productId)
+    let popularProducts: Array<{ id: string; name: string; retailPrice: number; imageUrl: string | null }> = []
+    if (popularIds.length > 0) {
+      const prods = await prisma.product.findMany({
+        where: { id: { in: popularIds }, isActive: true },
+        select: { id: true, name: true, retailPrice: true, imageUrl: true },
+      })
+      // 保持销量排序
+      popularProducts = popularIds
+        .map((id) => prods.find((p) => p.id === id))
+        .filter(Boolean)
+        .map((p) => ({
+          id: p!.id,
+          name: p!.name,
+          retailPrice: Number(p!.retailPrice),
+          imageUrl: p!.imageUrl,
+        }))
+    }
 
     return apiSuccess({
       todayRevenue,
@@ -64,6 +98,7 @@ export async function GET(request: NextRequest) {
       lowStockProducts: lowStockProducts.slice(0, 5),
       totalReceivable: Number(totalReceivable._sum.balance ?? 0),
       totalPayable: Number(totalPayable._sum.balance ?? 0),
+      popularProducts,
       recentSales: recentSales.map((s) => ({
         id: s.id,
         orderNo: s.orderNo,

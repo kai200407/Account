@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth-provider"
 import { api } from "@/lib/api-client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,8 +12,17 @@ import {
   Truck,
   Wallet,
   AlertTriangle,
+  Zap,
 } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
+
+interface PopularProduct {
+  id: string
+  name: string
+  retailPrice: number
+  imageUrl: string | null
+}
 
 interface DashboardData {
   todayRevenue: number
@@ -23,6 +33,7 @@ interface DashboardData {
   lowStockProducts: Array<{ name: string; stock: number; unit: string }>
   totalReceivable: number
   totalPayable: number
+  popularProducts: PopularProduct[]
   recentSales: Array<{
     id: string
     orderNo: string
@@ -42,6 +53,7 @@ const quickActions = [
 ]
 
 export default function DashboardPage() {
+  const router = useRouter()
   const { user, isOwner } = useAuth()
   const [data, setData] = useState<DashboardData | null>(null)
 
@@ -50,12 +62,6 @@ export default function DashboardPage() {
       if (res.success && res.data) setData(res.data)
     })
   }, [])
-
-  function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString("zh-CN", {
-      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-    })
-  }
 
   return (
     <div className="space-y-4">
@@ -83,32 +89,76 @@ export default function DashboardPage() {
         })}
       </div>
 
-      {/* 今日概览 */}
+      {/* 快速开单 — 热门商品 */}
+      {data && data.popularProducts.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Zap className="h-4 w-4 text-yellow-500" />
+              快速开单
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-4 gap-2">
+              {data.popularProducts.map((product) => (
+                <button
+                  key={product.id}
+                  onClick={() => router.push(`/sales/new?productId=${product.id}`)}
+                  className="flex flex-col items-center p-2 rounded-lg border hover:border-primary hover:bg-primary/5 transition-all active:scale-95"
+                >
+                  <div className="w-12 h-12 rounded-lg overflow-hidden mb-1">
+                    {product.imageUrl ? (
+                      <Image
+                        src={product.imageUrl}
+                        alt={product.name}
+                        width={48}
+                        height={48}
+                        className="object-cover w-full h-full"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                        <span className="text-lg font-bold text-gray-400">
+                          {product.name.charAt(0)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-xs text-center leading-tight line-clamp-1 w-full">
+                    {product.name}
+                  </span>
+                  <span className="text-xs text-primary font-bold">
+                    ¥{product.retailPrice.toFixed(0)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 今日摘要 — 精简为一行 */}
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">今日概览</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className={`grid gap-4 text-center ${isOwner ? "grid-cols-2 md:grid-cols-4" : "grid-cols-3"}`}>
-            <div>
-              <p className="text-2xl font-bold">¥{data?.todayRevenue.toFixed(0) ?? "0"}</p>
-              <p className="text-xs text-muted-foreground">今日销售</p>
-            </div>
-            {isOwner && (
-              <div>
-                <p className="text-2xl font-bold text-green-600">¥{data?.todayProfit.toFixed(0) ?? "0"}</p>
-                <p className="text-xs text-muted-foreground">今日利润</p>
-              </div>
-            )}
-            <div>
-              <p className="text-2xl font-bold">{data?.todayOrders ?? 0}</p>
-              <p className="text-xs text-muted-foreground">今日订单</p>
-            </div>
-            <div>
-              <p className={`text-2xl font-bold ${(data?.lowStockCount ?? 0) > 0 ? "text-red-500" : ""}`}>
-                {data?.lowStockCount ?? 0}
-              </p>
-              <p className="text-xs text-muted-foreground">低库存商品</p>
+        <CardContent className="p-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">今日</span>
+            <div className="flex items-center gap-4">
+              <span>
+                销售 <b>¥{data?.todayRevenue.toFixed(0) ?? "0"}</b>
+              </span>
+              <span>
+                <b>{data?.todayOrders ?? 0}</b> 笔
+              </span>
+              {isOwner && (
+                <span className="text-green-600">
+                  利润 <b>¥{data?.todayProfit.toFixed(0) ?? "0"}</b>
+                </span>
+              )}
+              {(data?.lowStockCount ?? 0) > 0 && (
+                <span className="text-red-500 flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {data?.lowStockCount}
+                </span>
+              )}
             </div>
           </div>
         </CardContent>
@@ -173,7 +223,6 @@ export default function DashboardPage() {
                     <Badge variant="secondary" className="text-xs ml-1.5">
                       {s.saleType === "wholesale" ? "批发" : "零售"}
                     </Badge>
-                    <p className="text-xs text-muted-foreground">{formatDate(s.orderDate)}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-medium">¥{s.totalAmount.toFixed(2)}</p>
