@@ -6,12 +6,14 @@ import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Plus, XCircle } from "lucide-react"
+import { Plus, XCircle, Undo2 } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
+import { ReturnForm } from "@/components/return-form"
 
 interface OrderItem {
   id: string
+  productId: string
   quantity: number
   unitPrice: number
   subtotal: number
@@ -49,6 +51,8 @@ export function OrderList({ type }: OrderListProps) {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [returnOrder, setReturnOrder] = useState<Order | null>(null)
+  const [returnFormOpen, setReturnFormOpen] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -159,6 +163,20 @@ export function OrderList({ type }: OrderListProps) {
                           <XCircle className="h-4 w-4" />
                         </Button>
                       )}
+                      {!isPurchase && order.status === "completed" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-orange-500"
+                          onClick={() => {
+                            setReturnOrder(order)
+                            setReturnFormOpen(true)
+                          }}
+                          title="退货"
+                        >
+                          <Undo2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -199,6 +217,29 @@ export function OrderList({ type }: OrderListProps) {
             </div>
           )}
         </div>
+      )}
+
+      {/* 退货表单弹窗 */}
+      {!isPurchase && (
+        <ReturnForm
+          open={returnFormOpen}
+          onClose={() => {
+            setReturnFormOpen(false)
+            setReturnOrder(null)
+          }}
+          onSaved={fetchData}
+          saleOrder={returnOrder ? {
+            id: returnOrder.id,
+            orderNo: returnOrder.orderNo,
+            items: returnOrder.items.map((i) => ({
+              id: i.id,
+              productId: i.productId,
+              quantity: i.quantity,
+              unitPrice: i.unitPrice,
+              product: i.product,
+            })),
+          } : null}
+        />
       )}
     </div>
   )

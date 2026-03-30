@@ -29,6 +29,7 @@ model Tenant {
   purchaseOrders PurchaseOrder[]
   saleOrders     SaleOrder[]
   payments       Payment[]
+  returnOrders   ReturnOrder[]
 
   @@map("tenants")
 }
@@ -91,6 +92,7 @@ model Product {
   category           Category?           @relation(fields: [categoryId], references: [id])
   purchaseOrderItems PurchaseOrderItem[]
   saleOrderItems     SaleOrderItem[]
+  returnOrderItems   ReturnOrderItem[]
 
   @@index([tenantId])
   @@index([tenantId, name])
@@ -136,8 +138,9 @@ model Customer {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id])
-  saleOrders SaleOrder[]
-  payments   Payment[]
+  saleOrders   SaleOrder[]
+  payments     Payment[]
+  returnOrders ReturnOrder[]
 
   @@index([tenantId])
   @@map("customers")
@@ -209,6 +212,7 @@ model SaleOrder {
   customer Customer?       @relation(fields: [customerId], references: [id])
   user     User?           @relation(fields: [userId], references: [id])
   items    SaleOrderItem[]
+  returns  ReturnOrder[]
 
   @@index([tenantId])
   @@index([tenantId, orderDate])
@@ -258,4 +262,46 @@ model Payment {
   @@index([tenantId, type])
   @@index([tenantId, paymentDate])
   @@map("payments")
+}
+
+// ==========================================
+// 退货单
+// ==========================================
+
+model ReturnOrder {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  saleOrderId String   @map("sale_order_id")
+  customerId  String?  @map("customer_id")
+  returnNo    String   @map("return_no")
+  totalAmount Decimal  @default(0) @map("total_amount")
+  reason      String?
+  status      String   @default("completed")
+  returnDate  DateTime @default(now()) @map("return_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id])
+  saleOrder SaleOrder        @relation(fields: [saleOrderId], references: [id])
+  customer  Customer?        @relation(fields: [customerId], references: [id])
+  items     ReturnOrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, returnDate])
+  @@map("return_orders")
+}
+
+model ReturnOrderItem {
+  id            String  @id @default(cuid())
+  returnOrderId String  @map("return_order_id")
+  productId     String  @map("product_id")
+  quantity      Int
+  unitPrice     Decimal @map("unit_price")
+  subtotal      Decimal
+
+  returnOrder ReturnOrder @relation(fields: [returnOrderId], references: [id], onDelete: Cascade)
+  product     Product     @relation(fields: [productId], references: [id])
+
+  @@index([returnOrderId])
+  @@map("return_order_items")
 }
