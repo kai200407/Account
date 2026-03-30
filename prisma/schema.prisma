@@ -30,6 +30,7 @@ model Tenant {
   saleOrders     SaleOrder[]
   payments       Payment[]
   returnOrders   ReturnOrder[]
+  auditLogs      AuditLog[]
 
   @@map("tenants")
 }
@@ -304,4 +305,27 @@ model ReturnOrderItem {
 
   @@index([returnOrderId])
   @@map("return_order_items")
+}
+
+// ==========================================
+// 操作审计日志
+// ==========================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  userName  String   @map("user_name")
+  action    String   // create | update | delete | cancel
+  entity    String   // product | sale | purchase | payment | customer | supplier | return | user
+  entityId  String?  @map("entity_id")
+  summary   String   // 人类可读描述
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entity])
+  @@map("audit_logs")
 }

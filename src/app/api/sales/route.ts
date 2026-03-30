@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { generateOrderNo } from "@/lib/order-utils"
+import { logAudit } from "@/lib/audit"
 
 // 获取销售单列表
 export async function GET(request: NextRequest) {
@@ -157,6 +158,8 @@ export async function POST(request: NextRequest) {
 
       return order
     })
+
+    await logAudit(auth, "create", "sale", result.id, `创建销售单 ${result.orderNo}，金额 ¥${Number(result.totalAmount).toFixed(2)}`)
 
     return apiSuccess(result, 201)
   } catch (error) {

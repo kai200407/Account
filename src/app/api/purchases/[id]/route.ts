@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, requireOwner, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { logAudit } from "@/lib/audit"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -76,6 +77,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         })
       }
     })
+
+    await logAudit(auth, "cancel", "purchase", id, `取消进货单 ${order.orderNo}`)
 
     return apiSuccess({ message: "订单已取消" })
   } catch (error) {

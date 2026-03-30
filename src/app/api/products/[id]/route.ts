@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, requireOwner, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { logAudit } from "@/lib/audit"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -77,6 +78,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       include: { category: true },
     })
 
+    await logAudit(auth, "update", "product", id, `更新商品「${product.name}」`)
+
     return apiSuccess(product)
   } catch (error) {
     console.error("更新商品失败:", error)
@@ -103,6 +106,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       where: { id },
       data: { isActive: false },
     })
+
+    await logAudit(auth, "delete", "product", id, `删除商品「${existing.name}」`)
 
     return apiSuccess({ message: "删除成功" })
   } catch (error) {

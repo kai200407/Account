@@ -6,6 +6,7 @@ export interface JwtPayload {
   userId: string
   tenantId: string
   role: string
+  userName: string
 }
 
 export function signToken(payload: JwtPayload): string {

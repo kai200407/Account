@@ -14,6 +14,7 @@ import {
   Wallet,
   LogOut,
   Undo2,
+  Settings,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -30,12 +31,19 @@ const navItems = [
   { href: "/reports", label: "报表", icon: FileText },
 ]
 
+// owner 专属导航
+const ownerNavItems = [
+  { href: "/settings/audit", label: "设置", icon: Settings },
+]
+
 // 手机底部只显示最常用的5个
 const mobileNavItems = navItems.slice(0, 5)
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user, logout, isOwner } = useAuth()
+
+  const allNavItems = isOwner ? [...navItems, ...ownerNavItems] : navItems
 
   return (
     <aside className="hidden md:flex md:w-56 md:flex-col md:fixed md:inset-y-0 bg-white border-r">
@@ -49,7 +57,7 @@ export function Sidebar() {
 
       {/* 导航 */}
       <nav className="flex-1 p-2 space-y-1">
-        {navItems.map((item) => {
+        {allNavItems.map((item) => {
           const Icon = item.icon
           const isActive =
             pathname === item.href ||

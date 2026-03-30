@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { logAudit } from "@/lib/audit"
 
 export async function GET(request: NextRequest) {
   const auth = requireAuth(request)
@@ -83,6 +84,8 @@ export async function POST(request: NextRequest) {
         notes: body.notes?.trim() || null,
       },
     })
+
+    await logAudit(auth, "create", "customer", customer.id, `创建客户「${customer.name}」`)
 
     return apiSuccess(customer, 201)
   } catch (error) {

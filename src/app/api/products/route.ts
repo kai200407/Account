@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { logAudit } from "@/lib/audit"
 
 /**
  * 过滤商品数据中的进价字段（staff 不可见）
@@ -141,6 +142,8 @@ export async function POST(request: NextRequest) {
       },
       include: { category: true },
     })
+
+    await logAudit(auth, "create", "product", product.id, `创建商品「${name}」`)
 
     return apiSuccess(product, 201)
   } catch (error) {

@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
       userId: result.user.id,
       tenantId: result.tenant.id,
       role: result.user.role,
+      userName: result.user.name,
     })
 
     return apiSuccess(

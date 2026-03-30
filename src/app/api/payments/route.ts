@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { logAudit } from "@/lib/audit"
 
 // 获取收付款记录 + 应收应付汇总
 export async function GET(request: NextRequest) {
@@ -117,6 +118,8 @@ export async function POST(request: NextRequest) {
         return record
       })
 
+      await logAudit(auth, "create", "payment", payment.id, `收款 ¥${payAmount.toFixed(2)}，客户「${payment.customer?.name}」`)
+
       return apiSuccess(payment, 201)
     } else {
       // 付款：我还供应商的钱
@@ -151,6 +154,8 @@ export async function POST(request: NextRequest) {
 
         return record
       })
+
+      await logAudit(auth, "create", "payment", payment.id, `付款 ¥${payAmount.toFixed(2)}，供应商「${payment.supplier?.name}」`)
 
       return apiSuccess(payment, 201)
     }

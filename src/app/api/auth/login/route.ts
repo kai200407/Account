@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       tenantId: user.tenantId,
       role: user.role,
+      userName: user.name,
     })
 
     return apiSuccess({
