@@ -244,11 +244,49 @@ docker-compose.yml       → 生产环境 PostgreSQL 配置
 - [x] "应收款/应付款"→"客户欠款/供应商欠款"
 - [x] "编号"→"货号"
 
+### ✅ Block 22: 操作审计日志（已完成）
+- [x] AuditLog 数据模型 + 迁移
+- [x] JWT payload 新增 userName 字段
+- [x] logAudit() 工具函数（~40行）
+- [x] 所有 CUD API（14个文件）注入审计日志记录
+- [x] GET /api/audit 日志查询接口（分页+筛选，仅 owner）
+- [x] 审计日志查看页 /settings/audit
+- [x] 侧边栏新增"设置"入口（仅 owner 可见）
+
+### ✅ Block 23: 员工管理（已完成）
+- [x] GET/POST /api/users 员工列表+创建（仅 owner）
+- [x] PUT/POST /api/users/[id] 更新信息/禁用启用/重置密码（仅 owner）
+- [x] 员工管理页 /settings/staff
+- [x] StaffForm 创建员工弹窗组件
+- [x] 不能删除员工，只能禁用（保留历史数据）
+- [x] 所有操作记录审计日志
+
+### ✅ Block 25: 商品图片上传（已完成）
+- [x] Product 模型新增 imageUrl 字段 + 迁移
+- [x] POST /api/upload 图片上传接口（2MB限制，JPG/PNG/WebP）
+- [x] 商品表单支持拍照/选图、预览、更换、删除
+- [x] 商品列表显示缩略图（无图显示首字母）
+- [x] Products API 支持 imageUrl 创建和更新
+
+### ✅ Block 26: POS 式开单体验大改（已完成）
+- [x] ProductGrid 组件：3列/4列网格卡片，图片+名称+价格+数量badge
+- [x] OrderForm 改造为 POS 风格：
+  - 商品网格始终可见，点击即加入购物车（数量+1）
+  - 底部悬浮购物车摘要，展开可调整数量/单价/删除
+  - 常用/全部 Tab + 内联搜索框
+  - 一行式类型切换+客户选择
+  - 支持 URL 参数 ?productId 自动预添加
+- [x] 散客零售最少 2-3 步完成开单
+
+### ✅ Block 27: 首页快速开单（已完成）
+- [x] Dashboard API 返回 popularProducts（近30天销量前8，含 imageUrl）
+- [x] 首页新增"快速开单"区域（4列热门商品网格）
+- [x] 点击热门商品 → 跳转销售页 → 商品自动在购物车
+- [x] 今日概览精简为一行摘要
+- [x] 散客零售 2 步完成：首页点商品 → 确认提交
+
 ## 延后功能（TODOS）
 
 - 条形码/二维码扫码录入（S）
 - 微信通知（M）
-- 商品图片上传（S）
 - Block 17: 订单修改功能（取消旧单+重建新单）
-- Block 22: 操作日志
-- Block 23: 员工账户管理
