@@ -37,6 +37,18 @@ interface CustomerRank {
   balance: number
 }
 
+interface TrendData {
+  monthly: Array<{ month: string; revenue: number; profit: number; orders: number }>
+  comparison: { revenueChange: number; profitChange: number; ordersChange: number }
+}
+
+interface InventoryData {
+  totalInventoryValue: number
+  totalProducts: number
+  totalStock: number
+  byCategory: Array<{ name: string; value: number; count: number }>
+}
+
 export default function ReportsPage() {
   const [tab, setTab] = useState("profit")
 
@@ -51,16 +63,22 @@ export default function ReportsPage() {
   const [profit, setProfit] = useState<ProfitData | null>(null)
   const [products, setProducts] = useState<{ bestsellers: ProductRank[]; slowMoving: ProductRank[] } | null>(null)
   const [customers, setCustomers] = useState<{ customers: CustomerRank[] } | null>(null)
+  const [trend, setTrend] = useState<TrendData | null>(null)
+  const [inventory, setInventory] = useState<InventoryData | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchReport = useCallback(async (type: string) => {
     setLoading(true)
-    const params = `type=${type}&start=${startDate}&end=${endDate}`
+    const params = type === "trend" || type === "inventory"
+      ? `type=${type}`
+      : `type=${type}&start=${startDate}&end=${endDate}`
     const res = await api<unknown>(`/api/reports?${params}`)
     if (res.success && res.data) {
       if (type === "profit") setProfit(res.data as ProfitData)
       if (type === "products") setProducts(res.data as { bestsellers: ProductRank[]; slowMoving: ProductRank[] })
       if (type === "customers") setCustomers(res.data as { customers: CustomerRank[] })
+      if (type === "trend") setTrend(res.data as TrendData)
+      if (type === "inventory") setInventory(res.data as InventoryData)
     }
     setLoading(false)
   }, [startDate, endDate])
@@ -112,9 +130,11 @@ export default function ReportsPage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="w-full">
-          <TabsTrigger value="profit" className="flex-1">利润报表</TabsTrigger>
-          <TabsTrigger value="products" className="flex-1">商品排行</TabsTrigger>
-          <TabsTrigger value="customers" className="flex-1">客户统计</TabsTrigger>
+          <TabsTrigger value="profit" className="flex-1 text-xs">利润</TabsTrigger>
+          <TabsTrigger value="trend" className="flex-1 text-xs">趋势</TabsTrigger>
+          <TabsTrigger value="inventory" className="flex-1 text-xs">库存</TabsTrigger>
+          <TabsTrigger value="products" className="flex-1 text-xs">商品</TabsTrigger>
+          <TabsTrigger value="customers" className="flex-1 text-xs">客户</TabsTrigger>
         </TabsList>
 
         {/* 利润报表 */}
@@ -227,6 +247,111 @@ export default function ReportsPage() {
                       ))}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+        </TabsContent>
+
+        {/* 趋势分析 */}
+        <TabsContent value="trend" className="space-y-4">
+          {loading ? (
+            <p className="text-center text-muted-foreground py-8">加载中...</p>
+          ) : trend ? (
+            <>
+              {/* 本月 vs 上月 */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: "销售额", change: trend.comparison.revenueChange, value: trend.monthly[trend.monthly.length - 1]?.revenue ?? 0 },
+                  { label: "利润", change: trend.comparison.profitChange, value: trend.monthly[trend.monthly.length - 1]?.profit ?? 0 },
+                  { label: "订单数", change: trend.comparison.ordersChange, value: trend.monthly[trend.monthly.length - 1]?.orders ?? 0 },
+                ].map((item) => (
+                  <Card key={item.label}>
+                    <CardContent className="p-3 text-center">
+                      <p className="text-xs text-muted-foreground">本月{item.label}</p>
+                      <p className="text-lg font-bold">
+                        {item.label === "订单数" ? item.value : `¥${item.value.toFixed(0)}`}
+                      </p>
+                      <p className={`text-xs font-medium ${item.change > 0 ? "text-green-600" : item.change < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                        {item.change > 0 ? "↑" : item.change < 0 ? "↓" : "—"}
+                        {Math.abs(item.change).toFixed(1)}%
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* 6个月趋势表格 */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">近6个月趋势</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    <div className="px-3 py-2 flex text-xs text-muted-foreground font-medium">
+                      <span className="w-20">月份</span>
+                      <span className="flex-1 text-right">销售额</span>
+                      <span className="flex-1 text-right">利润</span>
+                      <span className="w-14 text-right">订单</span>
+                    </div>
+                    {trend.monthly.map((m) => (
+                      <div key={m.month} className="px-3 py-2 flex text-sm">
+                        <span className="w-20 text-muted-foreground">{m.month}</span>
+                        <span className="flex-1 text-right font-medium">¥{m.revenue.toFixed(0)}</span>
+                        <span className="flex-1 text-right text-green-600">¥{m.profit.toFixed(0)}</span>
+                        <span className="w-14 text-right">{m.orders}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+        </TabsContent>
+
+        {/* 库存金额 */}
+        <TabsContent value="inventory" className="space-y-4">
+          {loading ? (
+            <p className="text-center text-muted-foreground py-8">加载中...</p>
+          ) : inventory ? (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <Card>
+                  <CardContent className="p-3 text-center">
+                    <p className="text-xs text-muted-foreground">库存总额</p>
+                    <p className="text-lg font-bold text-blue-600">¥{inventory.totalInventoryValue.toFixed(0)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3 text-center">
+                    <p className="text-xs text-muted-foreground">商品种类</p>
+                    <p className="text-lg font-bold">{inventory.totalProducts}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3 text-center">
+                    <p className="text-xs text-muted-foreground">总库存量</p>
+                    <p className="text-lg font-bold">{inventory.totalStock}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">按分类</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {inventory.byCategory.map((cat) => (
+                      <div key={cat.name} className="px-3 py-2 flex items-center justify-between text-sm">
+                        <div>
+                          <span className="font-medium">{cat.name}</span>
+                          <span className="text-xs text-muted-foreground ml-2">{cat.count}件</span>
+                        </div>
+                        <span className="font-bold text-blue-600">¥{cat.value.toFixed(0)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             </>

@@ -177,6 +177,96 @@ export async function GET(request: NextRequest) {
       return apiSuccess({ customers: ranked })
     }
 
+    if (type === "trend") {
+      // 月度趋势：最近6个月
+      const months = []
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        const monthStart = new Date(d.getFullYear(), d.getMonth(), 1)
+        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59)
+        months.push({
+          label: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+          start: monthStart,
+          end: monthEnd,
+        })
+      }
+
+      const monthlyData = await Promise.all(
+        months.map(async (m) => {
+          const sales = await prisma.saleOrder.findMany({
+            where: {
+              tenantId: auth.tenantId,
+              status: "completed",
+              orderDate: { gte: m.start, lte: m.end },
+            },
+            select: { totalAmount: true, profit: true },
+          })
+
+          const revenue = sales.reduce((s, o) => s + Number(o.totalAmount), 0)
+          const profit = sales.reduce((s, o) => s + Number(o.profit), 0)
+
+          return {
+            month: m.label,
+            revenue,
+            profit,
+            orders: sales.length,
+          }
+        })
+      )
+
+      // 本月 vs 上月对比
+      const current = monthlyData[monthlyData.length - 1]
+      const previous = monthlyData[monthlyData.length - 2]
+      const comparison = {
+        revenueChange: previous.revenue > 0
+          ? ((current.revenue - previous.revenue) / previous.revenue * 100)
+          : 0,
+        profitChange: previous.profit > 0
+          ? ((current.profit - previous.profit) / previous.profit * 100)
+          : 0,
+        ordersChange: previous.orders > 0
+          ? ((current.orders - previous.orders) / previous.orders * 100)
+          : 0,
+      }
+
+      return apiSuccess({ monthly: monthlyData, comparison })
+    }
+
+    if (type === "inventory") {
+      // 库存金额统计
+      const products = await prisma.product.findMany({
+        where: { tenantId: auth.tenantId, isActive: true },
+        include: { category: true },
+      })
+
+      let totalInventoryValue = 0
+      const categoryMap = new Map<string, { name: string; value: number; count: number }>()
+
+      for (const p of products) {
+        const value = p.stock * Number(p.costPrice)
+        totalInventoryValue += value
+
+        const catName = p.category?.name ?? "未分类"
+        const catId = p.categoryId ?? "none"
+        const existing = categoryMap.get(catId) ?? { name: catName, value: 0, count: 0 }
+        categoryMap.set(catId, {
+          name: catName,
+          value: existing.value + value,
+          count: existing.count + p.stock,
+        })
+      }
+
+      const byCategory = Array.from(categoryMap.values())
+        .sort((a, b) => b.value - a.value)
+
+      return apiSuccess({
+        totalInventoryValue,
+        totalProducts: products.length,
+        totalStock: products.reduce((s, p) => s + p.stock, 0),
+        byCategory,
+      })
+    }
+
     return apiError("未知报表类型")
   } catch (error) {
     console.error("获取报表失败:", error)
