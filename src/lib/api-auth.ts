@@ -29,6 +29,23 @@ export function requireAuth(request: NextRequest): JwtPayload | NextResponse {
 }
 
 /**
+ * 要求 owner 角色的 API 使用这个函数
+ * 非 owner 返回 403
+ */
+export function requireOwner(request: NextRequest): JwtPayload | NextResponse {
+  const result = requireAuth(request)
+  if (result instanceof NextResponse) return result
+
+  if (result.role !== "owner") {
+    return NextResponse.json(
+      { success: false, error: "权限不足，仅老板可操作" },
+      { status: 403 }
+    )
+  }
+  return result
+}
+
+/**
  * 判断 requireAuth 返回的是用户还是错误响应
  */
 export function isAuthError(

@@ -3,6 +3,15 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 
+/**
+ * 过滤商品数据中的进价字段（staff 不可见）
+ */
+function filterCostPrice(product: Record<string, unknown>): Record<string, unknown> {
+  const { costPrice, ...rest } = product
+  void costPrice
+  return rest
+}
+
 // 获取商品列表
 export async function GET(request: NextRequest) {
   const auth = requireAuth(request)
@@ -13,6 +22,7 @@ export async function GET(request: NextRequest) {
   const categoryId = url.searchParams.get("categoryId") ?? ""
   const page = parseInt(url.searchParams.get("page") ?? "1")
   const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const sort = url.searchParams.get("sort") ?? ""
 
   try {
     const where = {
@@ -29,19 +39,67 @@ export async function GET(request: NextRequest) {
       ...(categoryId ? { categoryId } : {}),
     }
 
+    // 支持按销量排序（常用商品）
+    let orderBy: Record<string, unknown> = { createdAt: "desc" as const }
+    if (sort === "popular") {
+      // 按近30天销量排序：先获取商品 ID 列表
+      const thirtyDaysAgo = new Date()
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+      const popularProducts = await prisma.saleOrderItem.groupBy({
+        by: ["productId"],
+        _sum: { quantity: true },
+        where: {
+          saleOrder: {
+            tenantId: auth.tenantId,
+            status: "completed",
+            orderDate: { gte: thirtyDaysAgo },
+          },
+        },
+        orderBy: { _sum: { quantity: "desc" } },
+        take: limit,
+      })
+
+      const popularIds = popularProducts.map((p) => p.productId)
+
+      if (popularIds.length > 0) {
+        const products = await prisma.product.findMany({
+          where: { ...where, id: { in: popularIds } },
+          include: { category: true },
+        })
+
+        // 保持销量排序
+        const sorted = popularIds
+          .map((id) => products.find((p) => p.id === id))
+          .filter(Boolean) as typeof products
+
+        const isStaff = auth.role !== "owner"
+        const items = isStaff
+          ? sorted.map((p) => filterCostPrice(p as unknown as Record<string, unknown>))
+          : sorted
+
+        return apiSuccess({ items, total: sorted.length, page: 1, limit, totalPages: 1 })
+      }
+    }
+
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
         include: { category: true },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
       }),
       prisma.product.count({ where }),
     ])
 
+    const isStaff = auth.role !== "owner"
+    const items = isStaff
+      ? products.map((p) => filterCostPrice(p as unknown as Record<string, unknown>))
+      : products
+
     return apiSuccess({
-      items: products,
+      items,
       total,
       page,
       limit,

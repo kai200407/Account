@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { api } from "@/lib/api-client"
+import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -24,6 +25,7 @@ interface Order {
   profit?: number
   saleType?: string
   orderDate: string
+  status: string
   notes: string | null
   supplier?: { name: string }
   customer?: { name: string } | null
@@ -35,6 +37,7 @@ interface OrderListProps {
 }
 
 export function OrderList({ type }: OrderListProps) {
+  const { isOwner } = useAuth()
   const isPurchase = type === "purchase"
   const title = isPurchase ? "进货记录" : "销售记录"
   const apiPath = isPurchase ? "/api/purchases" : "/api/sales"
@@ -97,21 +100,27 @@ export function OrderList({ type }: OrderListProps) {
             const contactName = isPurchase
               ? order.supplier?.name
               : order.customer?.name ?? "散客"
+            const isCancelled = order.status === "cancelled"
 
             return (
-              <Card key={order.id}>
+              <Card key={order.id} className={isCancelled ? "opacity-50" : ""}>
                 <CardContent className="p-3">
                   <div className="flex items-start justify-between mb-1">
                     <div>
                       <span className="text-xs text-muted-foreground">{order.orderNo}</span>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="font-medium text-sm">{contactName}</span>
-                        {!isPurchase && order.saleType && (
+                        {isCancelled && (
+                          <Badge variant="outline" className="text-xs text-muted-foreground">
+                            已取消
+                          </Badge>
+                        )}
+                        {!isPurchase && order.saleType && !isCancelled && (
                           <Badge variant={order.saleType === "wholesale" ? "default" : "secondary"} className="text-xs">
                             {order.saleType === "wholesale" ? "批发" : "零售"}
                           </Badge>
                         )}
-                        {unpaid > 0 && (
+                        {unpaid > 0 && !isCancelled && (
                           <Badge variant="destructive" className="text-xs">
                             欠¥{unpaid.toFixed(2)}
                           </Badge>
@@ -131,10 +140,10 @@ export function OrderList({ type }: OrderListProps) {
                     {order.items.length > 3 && <span>等{order.items.length}项</span>}
                   </div>
 
-                  {/* 金额 */}
+                  {/* 金额 — staff 不显示利润 */}
                   <div className="flex gap-4 text-sm">
                     <span>总额: <b>¥{Number(order.totalAmount).toFixed(2)}</b></span>
-                    {!isPurchase && order.profit !== undefined && (
+                    {!isPurchase && isOwner && order.profit !== undefined && !isCancelled && (
                       <span>利润: <b className="text-green-600">¥{Number(order.profit).toFixed(2)}</b></span>
                     )}
                   </div>

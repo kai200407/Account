@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { api } from "@/lib/api-client"
+import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -21,7 +22,7 @@ interface Product {
   sku: string | null
   unit: string
   categoryId: string | null
-  costPrice: number
+  costPrice?: number
   wholesalePrice: number
   retailPrice: number
   specialPrice: number | null
@@ -39,6 +40,7 @@ interface ProductListResponse {
 }
 
 export default function ProductsPage() {
+  const { isOwner } = useAuth()
   const [products, setProducts] = useState<Product[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -168,9 +170,11 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground mb-1">编号: {product.sku}</p>
                     )}
 
-                    {/* 价格行 */}
+                    {/* 价格行 — staff 看不到进价 */}
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-                      <span>进价: <b className="text-red-600">¥{Number(product.costPrice).toFixed(2)}</b></span>
+                      {isOwner && product.costPrice !== undefined && (
+                        <span>进价: <b className="text-red-600">¥{Number(product.costPrice).toFixed(2)}</b></span>
+                      )}
                       <span>批发: <b className="text-blue-600">¥{Number(product.wholesalePrice).toFixed(2)}</b></span>
                       <span>零售: <b className="text-green-600">¥{Number(product.retailPrice).toFixed(2)}</b></span>
                     </div>
@@ -194,14 +198,16 @@ export default function ProductsPage() {
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-red-500"
-                      onClick={() => handleDelete(product)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {isOwner && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-500"
+                        onClick={() => handleDelete(product)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -247,6 +253,7 @@ export default function ProductsPage() {
         }}
         onSaved={fetchProducts}
         product={editProduct}
+        isOwner={isOwner}
       />
     </div>
   )

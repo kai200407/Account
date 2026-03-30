@@ -8,7 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from "react"
-import { api, getToken, setToken, removeToken } from "@/lib/api-client"
+import { api, getToken, setToken, removeToken, setUserRole } from "@/lib/api-client"
 
 interface User {
   id: string
@@ -22,6 +22,7 @@ interface User {
 interface AuthContextType {
   user: User | null
   loading: boolean
+  isOwner: boolean
   login: (phone: string, password: string) => Promise<string | null>
   register: (data: RegisterData) => Promise<string | null>
   logout: () => void
@@ -40,6 +41,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const syncRole = (u: User | null) => {
+    if (u) {
+      setUserRole(u.role)
+    }
+  }
+
   const fetchUser = useCallback(async () => {
     const token = getToken()
     if (!token) {
@@ -50,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = await api<User>("/api/auth/me")
     if (result.success && result.data) {
       setUser(result.data)
+      syncRole(result.data)
     } else {
       removeToken()
     }
@@ -76,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ...result.data.user,
           tenantId: "",
         })
+        syncRole(result.data.user)
         await fetchUser()
         return null
       }
@@ -101,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ...result.data.user,
           tenantId: "",
         })
+        syncRole(result.data.user)
         await fetchUser()
         return null
       }
@@ -116,8 +126,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = "/login"
   }, [])
 
+  const isOwner = user?.role === "owner"
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, isOwner, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   )

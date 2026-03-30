@@ -24,7 +24,7 @@ interface Product {
   sku: string | null
   unit: string
   categoryId: string | null
-  costPrice: number
+  costPrice?: number
   wholesalePrice: number
   retailPrice: number
   specialPrice: number | null
@@ -38,9 +38,10 @@ interface ProductFormProps {
   onClose: () => void
   onSaved: () => void
   product?: Product | null
+  isOwner?: boolean
 }
 
-export function ProductForm({ open, onClose, onSaved, product }: ProductFormProps) {
+export function ProductForm({ open, onClose, onSaved, product, isOwner = true }: ProductFormProps) {
   const [loading, setLoading] = useState(false)
   const [categories, setCategories] = useState<Category[]>([])
 
@@ -67,7 +68,7 @@ export function ProductForm({ open, onClose, onSaved, product }: ProductFormProp
         setSku(product.sku ?? "")
         setUnit(product.unit)
         setCategoryId(product.categoryId ?? "")
-        setCostPrice(String(product.costPrice))
+        setCostPrice(product.costPrice != null ? String(product.costPrice) : "")
         setWholesalePrice(String(product.wholesalePrice))
         setRetailPrice(String(product.retailPrice))
         setSpecialPrice(product.specialPrice != null ? String(product.specialPrice) : "")
@@ -99,18 +100,22 @@ export function ProductForm({ open, onClose, onSaved, product }: ProductFormProp
 
     setLoading(true)
     try {
-      const data = {
+      const data: Record<string, unknown> = {
         name: name.trim(),
         sku: sku.trim() || null,
         unit,
         categoryId: categoryId || null,
-        costPrice: parseFloat(costPrice) || 0,
         wholesalePrice: parseFloat(wholesalePrice) || 0,
         retailPrice: parseFloat(retailPrice) || 0,
         specialPrice: specialPrice ? parseFloat(specialPrice) : null,
         stock: parseInt(stock) || 0,
         lowStockAlert: parseInt(lowStockAlert) || 10,
         notes: notes.trim() || null,
+      }
+
+      // 仅 owner 可以设置进价
+      if (isOwner) {
+        data.costPrice = parseFloat(costPrice) || 0
       }
 
       const url = product ? `/api/products/${product.id}` : "/api/products"
@@ -169,7 +174,7 @@ export function ProductForm({ open, onClose, onSaved, product }: ProductFormProp
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>编号</Label>
+              <Label>货号</Label>
               <Input
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
@@ -179,19 +184,21 @@ export function ProductForm({ open, onClose, onSaved, product }: ProductFormProp
             </div>
           </div>
 
-          {/* 四种价格 - 核心 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>进价 (¥)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={costPrice}
-                onChange={(e) => setCostPrice(e.target.value)}
-                placeholder="0.00"
-                className="h-11"
-              />
-            </div>
+          {/* 价格区域 — staff 看不到进价 */}
+          <div className={`grid gap-3 ${isOwner ? "grid-cols-2" : "grid-cols-2"}`}>
+            {isOwner && (
+              <div className="space-y-1.5">
+                <Label>进价 (¥)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={costPrice}
+                  onChange={(e) => setCostPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="h-11"
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>批发价 (¥)</Label>
               <Input

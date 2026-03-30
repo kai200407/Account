@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { requireAuth, isAuthError } from "@/lib/api-auth"
+import { requireAuth, requireOwner, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 
 interface RouteParams {
@@ -21,6 +21,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (!product) {
       return apiError("商品不存在", 404)
+    }
+
+    // staff 不返回进价
+    if (auth.role !== "owner") {
+      const { costPrice, ...rest } = product as unknown as Record<string, unknown>
+      void costPrice
+      return apiSuccess(rest)
     }
 
     return apiSuccess(product)
@@ -46,6 +53,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await request.json()
+
+    // staff 不能修改进价
+    const costPrice = auth.role === "owner"
+      ? (body.costPrice ?? existing.costPrice)
+      : existing.costPrice
+
     const product = await prisma.product.update({
       where: { id },
       data: {
@@ -53,7 +66,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         sku: body.sku !== undefined ? body.sku || null : existing.sku,
         unit: body.unit ?? existing.unit,
         categoryId: body.categoryId !== undefined ? body.categoryId || null : existing.categoryId,
-        costPrice: body.costPrice ?? existing.costPrice,
+        costPrice,
         wholesalePrice: body.wholesalePrice ?? existing.wholesalePrice,
         retailPrice: body.retailPrice ?? existing.retailPrice,
         specialPrice: body.specialPrice !== undefined ? body.specialPrice : existing.specialPrice,
@@ -71,9 +84,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// 删除商品（软删除）
+// 删除商品（软删除）— 仅 owner
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = requireOwner(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 

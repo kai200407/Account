@@ -42,7 +42,7 @@ const quickActions = [
 ]
 
 export default function DashboardPage() {
-  const { user } = useAuth()
+  const { user, isOwner } = useAuth()
   const [data, setData] = useState<DashboardData | null>(null)
 
   useEffect(() => {
@@ -89,15 +89,17 @@ export default function DashboardPage() {
           <CardTitle className="text-base">今日概览</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          <div className={`grid gap-4 text-center ${isOwner ? "grid-cols-2 md:grid-cols-4" : "grid-cols-3"}`}>
             <div>
               <p className="text-2xl font-bold">¥{data?.todayRevenue.toFixed(0) ?? "0"}</p>
               <p className="text-xs text-muted-foreground">今日销售</p>
             </div>
-            <div>
-              <p className="text-2xl font-bold text-green-600">¥{data?.todayProfit.toFixed(0) ?? "0"}</p>
-              <p className="text-xs text-muted-foreground">今日利润</p>
-            </div>
+            {isOwner && (
+              <div>
+                <p className="text-2xl font-bold text-green-600">¥{data?.todayProfit.toFixed(0) ?? "0"}</p>
+                <p className="text-xs text-muted-foreground">今日利润</p>
+              </div>
+            )}
             <div>
               <p className="text-2xl font-bold">{data?.todayOrders ?? 0}</p>
               <p className="text-xs text-muted-foreground">今日订单</p>
@@ -118,7 +120,7 @@ export default function DashboardPage() {
           <Link href="/payments">
             <Card className="cursor-pointer hover:shadow-md transition-shadow">
               <CardContent className="p-3 text-center">
-                <p className="text-xs text-muted-foreground">应收款</p>
+                <p className="text-xs text-muted-foreground">客户欠款</p>
                 <p className="text-lg font-bold text-orange-600">¥{data.totalReceivable.toFixed(0)}</p>
               </CardContent>
             </Card>
@@ -126,7 +128,7 @@ export default function DashboardPage() {
           <Link href="/payments">
             <Card className="cursor-pointer hover:shadow-md transition-shadow">
               <CardContent className="p-3 text-center">
-                <p className="text-xs text-muted-foreground">应付款</p>
+                <p className="text-xs text-muted-foreground">供应商欠款</p>
                 <p className="text-lg font-bold text-red-600">¥{data.totalPayable.toFixed(0)}</p>
               </CardContent>
             </Card>
@@ -175,7 +177,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="text-right">
                     <p className="font-medium">¥{s.totalAmount.toFixed(2)}</p>
-                    <p className="text-xs text-green-600">+¥{s.profit.toFixed(2)}</p>
+                    {isOwner && (
+                      <p className="text-xs text-green-600">+¥{s.profit.toFixed(2)}</p>
+                    )}
                   </div>
                 </div>
               ))}

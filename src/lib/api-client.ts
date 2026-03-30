@@ -1,4 +1,5 @@
 const TOKEN_KEY = "jizhang_token"
+const ROLE_KEY = "jizhang_role"
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null
@@ -11,6 +12,20 @@ export function setToken(token: string): void {
 
 export function removeToken(): void {
   localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(ROLE_KEY)
+}
+
+export function getUserRole(): string {
+  if (typeof window === "undefined") return "staff"
+  return localStorage.getItem(ROLE_KEY) ?? "staff"
+}
+
+export function setUserRole(role: string): void {
+  localStorage.setItem(ROLE_KEY, role)
+}
+
+export function isOwner(): boolean {
+  return getUserRole() === "owner"
 }
 
 interface ApiResult<T> {
