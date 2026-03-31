@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { logAudit } from "@/lib/audit"
+import { createStockMovement } from "@/lib/stock"
 
 // 获取退货单列表
 export async function GET(request: NextRequest) {
@@ -150,11 +151,18 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // 2. 回滚库存：每个商品 stock += quantity
+      // 2. 回滚库存（通过库存流水）
       for (const item of returnItems) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { increment: item.quantity } },
+        await createStockMovement(tx, {
+          tenantId: auth.tenantId,
+          productId: item.productId,
+          type: "return_in",
+          quantity: item.quantity,
+          refType: "return_order",
+          refId: returnOrder.id,
+          refNo: returnOrder.returnNo,
+          operatorId: auth.userId,
+          operatorName: auth.userName || "未知用户",
         })
       }
 
