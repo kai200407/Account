@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { customerId, saleType, items, paidAmount, notes, orderDate } = body
+    const { customerId, saleType, items, paidAmount, notes, orderDate, warehouseId } = body
 
     if (!items || items.length === 0) return apiError("请添加销售商品")
 
@@ -124,6 +124,7 @@ export async function POST(request: NextRequest) {
           tenantId: auth.tenantId,
           customerId: customerId || null,
           userId: auth.userId,
+          warehouseId: warehouseId || null,
           orderNo: generateOrderNo("SO"),
           saleType: type,
           totalAmount,
@@ -148,6 +149,7 @@ export async function POST(request: NextRequest) {
           productId: item.productId,
           type: "sale_out",
           quantity: -item.quantity,
+          warehouseId: warehouseId || undefined,
           refType: "sale_order",
           refId: order.id,
           refNo: order.orderNo,

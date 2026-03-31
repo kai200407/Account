@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator"
 import { Trash2, ArrowLeft, Star, Search, ShoppingCart, Minus, Plus, ChevronUp, ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 import { ProductGrid } from "@/components/product-grid"
+import { WarehouseSelector } from "@/components/warehouse-selector"
 
 interface Product {
   id: string
@@ -60,6 +61,7 @@ export function OrderForm({ type }: OrderFormProps) {
 
   // 表单
   const [contactId, setContactId] = useState("")
+  const [warehouseId, setWarehouseId] = useState("")
   const [items, setItems] = useState<OrderItem[]>([])
   const [paidAmount, setPaidAmount] = useState("")
   const [notes, setNotes] = useState("")
@@ -209,6 +211,7 @@ export function OrderForm({ type }: OrderFormProps) {
         ...(isPurchase
           ? { supplierId: contactId }
           : { customerId: contactId || null, saleType }),
+        warehouseId: warehouseId || null,
         items: items.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
@@ -330,6 +333,16 @@ export function OrderForm({ type }: OrderFormProps) {
               </select>
             </div>
           )}
+
+          {/* 仓库选择 */}
+          <div>
+            <Label>{isPurchase ? "入库仓库" : "出库仓库"}</Label>
+            <WarehouseSelector
+              value={warehouseId}
+              onChange={setWarehouseId}
+              className="mt-1"
+            />
+          </div>
         </CardContent>
       </Card>
 

@@ -69,6 +69,8 @@ const TYPE_LABELS: Record<string, string> = {
   cancel_purchase: "取消采购",
   cancel_sale: "取消销售",
   adjustment: "手动调整",
+  transfer_in: "调拨入库",
+  transfer_out: "调拨出库",
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -78,6 +80,8 @@ const TYPE_COLORS: Record<string, string> = {
   cancel_purchase: "bg-orange-100 text-orange-800",
   cancel_sale: "bg-purple-100 text-purple-800",
   adjustment: "bg-yellow-100 text-yellow-800",
+  transfer_in: "bg-cyan-100 text-cyan-800",
+  transfer_out: "bg-pink-100 text-pink-800",
 }
 
 function formatDate(dateStr: string) {

@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { supplierId, items, paidAmount, notes, orderDate } = body
+    const { supplierId, items, paidAmount, notes, orderDate, warehouseId } = body
 
     if (!supplierId) return apiError("请选择供应商")
     if (!items || items.length === 0) return apiError("请添加进货商品")
@@ -99,6 +99,7 @@ export async function POST(request: NextRequest) {
         data: {
           tenantId: auth.tenantId,
           supplierId,
+          warehouseId: warehouseId || null,
           orderNo: generateOrderNo("PO"),
           totalAmount,
           paidAmount: paid,
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
           productId: item.productId,
           type: "purchase_in",
           quantity: item.quantity,
+          warehouseId: warehouseId || undefined,
           refType: "purchase_order",
           refId: order.id,
           refNo: order.orderNo,

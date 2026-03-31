@@ -69,6 +69,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           productId: item.productId,
           type: "cancel_sale",
           quantity: item.quantity,
+          warehouseId: order.warehouseId || undefined,
           refType: "sale_order",
           refId: order.id,
           refNo: order.orderNo,
