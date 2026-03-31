@@ -11,6 +11,8 @@ export type AuditEntity =
   | "supplier"
   | "return"
   | "user"
+  | "warehouse"
+  | "stock_adjustment"
 
 /**
  * 记录审计日志
