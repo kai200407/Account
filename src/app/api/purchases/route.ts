@@ -4,6 +4,7 @@ import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { generateOrderNo } from "@/lib/order-utils"
 import { logAudit } from "@/lib/audit"
+import { createStockMovement } from "@/lib/stock"
 
 // 获取进货单列表
 export async function GET(request: NextRequest) {
@@ -113,11 +114,18 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // 2. 增加库存
+      // 2. 增加库存（通过库存流水）
       for (const item of orderItems) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { increment: item.quantity } },
+        await createStockMovement(tx, {
+          tenantId: auth.tenantId,
+          productId: item.productId,
+          type: "purchase_in",
+          quantity: item.quantity,
+          refType: "purchase_order",
+          refId: order.id,
+          refNo: order.orderNo,
+          operatorId: auth.userId,
+          operatorName: auth.userName || "未知用户",
         })
       }
 

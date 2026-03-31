@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth, requireOwner, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { logAudit } from "@/lib/audit"
+import { createStockMovement } from "@/lib/stock"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -45,7 +46,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const order = await prisma.purchaseOrder.findFirst({
       where: { id, tenantId: auth.tenantId },
-      include: { items: true },
+      include: { items: { include: { product: true } } },
     })
 
     if (!order) return apiError("进货单不存在", 404)
@@ -60,11 +61,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         data: { status: "cancelled" },
       })
 
-      // 2. 回滚库存：每个商品 stock -= quantity
+      // 2. 回滚库存（通过库存流水）
       for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { decrement: item.quantity } },
+        await createStockMovement(tx, {
+          tenantId: auth.tenantId,
+          productId: item.productId,
+          type: "cancel_purchase",
+          quantity: -item.quantity,
+          refType: "purchase_order",
+          refId: order.id,
+          refNo: order.orderNo,
+          notes: "取消采购单",
+          operatorId: auth.userId,
+          operatorName: auth.userName || "未知用户",
         })
       }
 
