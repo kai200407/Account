@@ -414,6 +414,44 @@ model TransferOrderItem {
 }
 
 // ==========================================
+// 盘点单
+// ==========================================
+
+model StocktakeOrder {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  warehouseId String?  @map("warehouse_id")
+  stocktakeNo String   @map("stocktake_no")
+  status      String   @default("draft") // draft | in_progress | completed | cancelled
+  notes       String?
+  operatorId  String   @map("operator_id")
+  operatorName String  @map("operator_name")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items StocktakeItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("stocktake_orders")
+}
+
+model StocktakeItem {
+  id             String  @id @default(cuid())
+  stocktakeOrderId String @map("stocktake_order_id")
+  productId      String  @map("product_id")
+  systemQty      Int     @map("system_qty")  // 系统库存
+  actualQty      Int?    @map("actual_qty")  // 实际数量（盘点时填入）
+  diffQty        Int?    @map("diff_qty")    // 差异 = actual - system
+
+  stocktakeOrder StocktakeOrder @relation(fields: [stocktakeOrderId], references: [id], onDelete: Cascade)
+
+  @@index([stocktakeOrderId])
+  @@map("stocktake_items")
+}
+
+// ==========================================
 // 操作审计日志
 // ==========================================
 
