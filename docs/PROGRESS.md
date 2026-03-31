@@ -203,8 +203,6 @@ docker-compose.yml       → 生产环境 PostgreSQL 配置
 - [x] .gitignore 更新（保留.env.production模板）
 - [x] `pnpm build` 最终构建通过
 
-## 🎉 全部 13 个 Block 已完成！
-
 ### ✅ Block 14: 角色权限管理（已完成）
 - [x] api-auth.ts 新增 requireOwner() 中间件（非 owner 返回 403）
 - [x] Products API: staff 不返回 costPrice, DELETE/修改进价 仅 owner
@@ -284,6 +282,92 @@ docker-compose.yml       → 生产环境 PostgreSQL 配置
 - [x] 点击热门商品 → 跳转销售页 → 商品自动在购物车
 - [x] 今日概览精简为一行摘要
 - [x] 散客零售 2 步完成：首页点商品 → 确认提交
+
+---
+
+## 🏭 仓储管理系统（Block 28-33）
+
+### ✅ Block 28: 库存流水 — Phase 1（已完成）
+- [x] StockMovement 数据模型（tenantId、productId、type、quantity、balanceAfter、refType/refId/refNo）
+- [x] `src/lib/stock.ts` 核心库：createStockMovement() 在事务中原子操作
+- [x] 重构采购入库/取消 → purchase_in / cancel_purchase 库存流水
+- [x] 重构销售出库/取消 → sale_out / cancel_sale 库存流水
+- [x] 重构退货入库 → return_in 库存流水
+- [x] GET /api/stock-movements — 流水列表（分页+筛选 productId/type/date）
+- [x] GET /api/stock-movements/product/[id] — 单商品流水
+- [x] POST /api/stock-movements/adjust — 手动调整（仅 owner，需填原因）
+- [x] 库存管理页 /inventory（流水表格、统计卡片、搜索筛选）
+- [x] StockAdjustmentDialog 手动调整弹窗
+- [x] 侧边栏新增"库存"导航
+- [x] AuditEntity 扩展 warehouse / stock_adjustment
+- [x] generateOrderNo 扩展 TF / ST 前缀
+- **5 commits**, `pnpm build` 构建通过
+
+### ✅ Block 29: 多仓库支持 — Phase 2（已完成）
+- [x] Warehouse 模型（name、address、isDefault、isActive）
+- [x] WarehouseStock 模型（warehouseId+productId 唯一，仓库级库存）
+- [x] TransferOrder / TransferOrderItem 模型（调拨单）
+- [x] PurchaseOrder / SaleOrder / ReturnOrder 新增可选 warehouseId
+- [x] StockMovement 新增 warehouseId、transfer_in / transfer_out 类型
+- [x] createStockMovement 自动同步 WarehouseStock（upsert）
+- [x] GET/POST /api/warehouses — 列表/创建（自动创建默认仓库）
+- [x] GET/PUT/DELETE /api/warehouses/[id] — CRUD
+- [x] GET /api/warehouses/[id]/stock — 仓库库存明细
+- [x] GET/POST /api/transfers — 调拨单列表/创建（验证库存+双向流水）
+- [x] GET /api/transfers/[id] — 调拨单详情
+- [x] WarehouseSelector 可复用仓库下拉组件
+- [x] 采购/销售表单新增仓库选择器
+- [x] 仓库管理页 /warehouses（卡片式 CRUD）
+- [x] 仓库库存明细页 /warehouses/[id]
+- [x] 调拨单列表页 /transfers + 新建调拨页 /transfers/new
+- [x] 侧边栏新增"仓库""调拨"导航
+- [x] 向后兼容：所有 warehouseId 可选，Product.stock 仍为总量
+- **3 commits**, `pnpm build` 构建通过
+
+### ✅ Block 30: 库存盘点 — Phase 3（已完成）
+- [x] StocktakeOrder 模型（warehouseId、status: draft/in_progress/completed/cancelled）
+- [x] StocktakeItem 模型（systemQty、actualQty、diffQty）
+- [x] GET/POST /api/stocktakes — 列表/创建（自动加载当前库存为 systemQty）
+- [x] GET/PUT /api/stocktakes/[id] — 详情/操作（start/count/complete/cancel）
+- [x] 确认完成时自动为有差异的商品生成 adjustment 流水
+- [x] 盘点列表页 /stocktakes + 盘点详情页 /stocktakes/[id]
+- [x] 详情页支持：开始盘点、录入实际数量、保存、确认完成（仅 owner）、取消
+- [x] 侧边栏新增"盘点"导航
+- **1 commit**, `pnpm build` 构建通过
+
+### ✅ Block 31: 批次与效期管理 — Phase 4（已完成）
+- [x] Batch 模型（productId、batchNo、quantity、productionDate、expiryDate）
+- [x] Product 新增 enableBatchTracking 字段
+- [x] GET/POST /api/batches — 列表/创建（支持 expiringSoon=true 临期筛选）
+- [x] GET/PUT /api/batches/[id] — 详情/更新
+- [x] 批次管理页 /batches（全部批次 Tab + 临期预警 Tab）
+- [x] 临期预警卡片：高亮显示30天内到期的批次
+- [x] 侧边栏新增"批次"导航
+- **1 commit**, `pnpm build` 构建通过
+
+### ✅ Block 32: 高级仓库分析 — Phase 5（已完成）
+- [x] GET /api/warehouse-analytics?type=reorder — 智能补货建议
+  - 低库存商品 + 上次供应商/价格 + 推荐采购量 + 预估金额
+- [x] GET /api/warehouse-analytics?type=stock_age — 库龄分析
+  - 按入库时间分组（0-30/31-60/61-90/90+天），含库存金额
+- [x] GET /api/warehouse-analytics?type=abc — ABC分类
+  - 按销售金额排序（A=80%/B=15%/C=5%营收贡献）
+- [x] 仓库分析页 /analytics（三个 Tab 面板，各含统计卡片和详细表格）
+- [x] 侧边栏新增"分析"导航
+- **1 commit**, `pnpm build` 构建通过
+
+### ✅ Block 33: 仓库报表增强 — Phase 6（已完成）
+- [x] Reports API 新增5种报表类型:
+  - movements: 出入库汇总（按类型/商品维度，入库/出库总量）
+  - warehouse_util: 仓库利用率（各仓库商品数量和利用率%）
+  - turnover: 库存周转率（销售成本/平均库存，存货天数，商品排行）
+  - stocktake_variance: 盘点差异（盘盈/盘亏统计，差异明细）
+  - batch_expiry: 批次效期报告（已过期/7天内/30天内/安全分组）
+- [x] 报表页面新增3个 Tab: 出入库、周转、盘差
+- [x] WarehouseReportPanel 通用报表渲染组件
+- **1 commit**, `pnpm build` 构建通过
+
+## 🎉 全部 33 个 Block 已完成！
 
 ## 延后功能（TODOS）
 
