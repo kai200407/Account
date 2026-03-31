@@ -10,7 +10,7 @@ interface RouteParams {
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 // 取消进货单 — 仅 owner
 export async function PUT(request: NextRequest, { params }: RouteParams) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -81,10 +81,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       // 3. 回滚供应商余额：欠款部分 = totalAmount - paidAmount
       const unpaid = Number(order.totalAmount) - Number(order.paidAmount)
       if (unpaid > 0) {
-        await tx.supplier.update({
-          where: { id: order.supplierId },
+        const updated = await tx.supplier.updateMany({
+          where: {
+            id: order.supplierId,
+            tenantId: auth.tenantId,
+            balance: { gte: unpaid },
+          },
           data: { balance: { decrement: unpaid } },
         })
+        if (updated.count !== 1) {
+          throw new Error("供应商欠款已变更，请重试取消")
+        }
       }
     })
 
@@ -93,6 +100,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     return apiSuccess({ message: "订单已取消" })
   } catch (error) {
     console.error("取消进货单失败:", error)
+    if (error instanceof Error && error.message) {
+      return apiError(error.message)
+    }
     return apiError("取消进货单失败", 500)
   }
 }

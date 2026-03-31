@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { WarehouseSelector } from "@/components/warehouse-selector"
-import { ArrowLeft, Plus, Trash2, ArrowRightLeft } from "lucide-react"
+import { ArrowLeft, Trash2, ArrowRightLeft } from "lucide-react"
 import { toast } from "sonner"
 
 interface Product {

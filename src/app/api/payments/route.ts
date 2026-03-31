@@ -3,16 +3,16 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { logAudit } from "@/lib/audit"
+import { getPaginationParams } from "@/lib/pagination"
 
 // 获取收付款记录 + 应收应付汇总
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
   const tab = url.searchParams.get("tab") ?? "receivable"
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
 
   try {
     if (tab === "summary") {
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
         where,
         include: { customer: true, supplier: true },
         orderBy: { paymentDate: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.payment.count({ where }),
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
 
 // 创建收款/付款（事务：记录 + 更新余额）
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
@@ -98,6 +98,19 @@ export async function POST(request: NextRequest) {
       }
 
       const payment = await prisma.$transaction(async (tx) => {
+        const updated = await tx.customer.updateMany({
+          where: {
+            id: customerId,
+            tenantId: auth.tenantId,
+            isActive: true,
+            balance: { gte: payAmount },
+          },
+          data: { balance: { decrement: payAmount } },
+        })
+        if (updated.count !== 1) {
+          throw new Error("收款金额不能超过欠款")
+        }
+
         const record = await tx.payment.create({
           data: {
             tenantId: auth.tenantId,
@@ -108,11 +121,6 @@ export async function POST(request: NextRequest) {
             notes: notes?.trim() || null,
           },
           include: { customer: true },
-        })
-
-        await tx.customer.update({
-          where: { id: customerId },
-          data: { balance: { decrement: payAmount } },
         })
 
         return record
@@ -135,6 +143,19 @@ export async function POST(request: NextRequest) {
       }
 
       const payment = await prisma.$transaction(async (tx) => {
+        const updated = await tx.supplier.updateMany({
+          where: {
+            id: supplierId,
+            tenantId: auth.tenantId,
+            isActive: true,
+            balance: { gte: payAmount },
+          },
+          data: { balance: { decrement: payAmount } },
+        })
+        if (updated.count !== 1) {
+          throw new Error("付款金额不能超过欠款")
+        }
+
         const record = await tx.payment.create({
           data: {
             tenantId: auth.tenantId,
@@ -147,11 +168,6 @@ export async function POST(request: NextRequest) {
           include: { supplier: true },
         })
 
-        await tx.supplier.update({
-          where: { id: supplierId },
-          data: { balance: { decrement: payAmount } },
-        })
-
         return record
       })
 
@@ -161,6 +177,9 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error("创建收付款失败:", error)
+    if (error instanceof Error && error.message) {
+      return apiError(error.message)
+    }
     return apiError("创建收付款失败", 500)
   }
 }

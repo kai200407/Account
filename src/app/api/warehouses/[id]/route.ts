@@ -10,7 +10,7 @@ interface RouteParams {
 
 // 获取仓库详情
 export async function GET(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 // 更新仓库
 export async function PUT(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -71,7 +71,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 // 删除仓库 — 仅 owner
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -84,7 +84,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     // 检查仓库是否有库存
     const stockCount = await prisma.warehouseStock.count({
-      where: { warehouseId: id, quantity: { gt: 0 } },
+      where: { warehouseId: id, tenantId: auth.tenantId, quantity: { gt: 0 } },
     })
     if (stockCount > 0) return apiError("仓库还有库存，请先调拨清空后再删除")
 

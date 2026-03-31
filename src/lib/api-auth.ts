@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { verifyToken, type JwtPayload } from "./auth"
+import { prisma } from "./prisma"
 
 /**
  * 从请求中提取并验证 JWT，返回用户信息
@@ -17,7 +18,7 @@ export function getAuthUser(request: NextRequest): JwtPayload | null {
 /**
  * 要求登录的 API 使用这个函数，未登录直接返回 401
  */
-export function requireAuth(request: NextRequest): JwtPayload | NextResponse {
+export async function requireAuth(request: NextRequest): Promise<JwtPayload | NextResponse> {
   const user = getAuthUser(request)
   if (!user) {
     return NextResponse.json(
@@ -25,15 +26,42 @@ export function requireAuth(request: NextRequest): JwtPayload | NextResponse {
       { status: 401 }
     )
   }
-  return user
+
+  const currentUser = await prisma.user.findFirst({
+    where: {
+      id: user.userId,
+      tenantId: user.tenantId,
+      isActive: true,
+    },
+    select: {
+      id: true,
+      tenantId: true,
+      role: true,
+      name: true,
+    },
+  })
+
+  if (!currentUser) {
+    return NextResponse.json(
+      { success: false, error: "账号已失效，请重新登录" },
+      { status: 401 }
+    )
+  }
+
+  return {
+    userId: currentUser.id,
+    tenantId: currentUser.tenantId,
+    role: currentUser.role,
+    userName: currentUser.name,
+  }
 }
 
 /**
  * 要求 owner 角色的 API 使用这个函数
  * 非 owner 返回 403
  */
-export function requireOwner(request: NextRequest): JwtPayload | NextResponse {
-  const result = requireAuth(request)
+export async function requireOwner(request: NextRequest): Promise<JwtPayload | NextResponse> {
+  const result = await requireAuth(request)
   if (result instanceof NextResponse) return result
 
   if (result.role !== "owner") {

@@ -4,15 +4,15 @@ import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { generateOrderNo } from "@/lib/order-utils"
 import { logAudit } from "@/lib/audit"
+import { getPaginationParams } from "@/lib/pagination"
 
 // 获取盘点单列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
   const status = url.searchParams.get("status") ?? ""
 
   try {
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
         where,
         include: { items: true },
         orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.stocktakeOrder.count({ where }),
@@ -39,12 +39,20 @@ export async function GET(request: NextRequest) {
 
 // 创建盘点单（草稿）— 自动加载当前库存作为 systemQty
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
     const body = await request.json()
     const { warehouseId, productIds, notes } = body
+
+    if (warehouseId) {
+      const warehouse = await prisma.warehouse.findFirst({
+        where: { id: warehouseId, tenantId: auth.tenantId, isActive: true },
+        select: { id: true },
+      })
+      if (!warehouse) return apiError("仓库不存在或无权限")
+    }
 
     // 获取要盘点的商品
     const productWhere: Record<string, unknown> = {
@@ -66,7 +74,11 @@ export async function POST(request: NextRequest) {
     let systemQtyMap: Record<string, number> = {}
     if (warehouseId) {
       const whStocks = await prisma.warehouseStock.findMany({
-        where: { warehouseId, productId: { in: products.map((p) => p.id) } },
+        where: {
+          warehouseId,
+          tenantId: auth.tenantId,
+          productId: { in: products.map((p) => p.id) },
+        },
       })
       systemQtyMap = Object.fromEntries(whStocks.map((s) => [s.productId, s.quantity]))
     }

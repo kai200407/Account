@@ -4,7 +4,7 @@ import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
@@ -28,28 +28,40 @@ export async function GET(request: NextRequest) {
       const needReorder = lowStockProducts.filter((p) => p.stock <= p.lowStockAlert)
 
       // 查最近一次采购记录（获取供应商和价格）
-      const reorderSuggestions = await Promise.all(
-        needReorder.map(async (p) => {
-          const lastPurchaseItem = await prisma.purchaseOrderItem.findFirst({
-            where: { productId: p.id, purchaseOrder: { tenantId: tid, status: "completed" } },
-            include: { purchaseOrder: { include: { supplier: { select: { id: true, name: true } } } } },
-            orderBy: { purchaseOrder: { orderDate: "desc" } },
-          })
-
-          // 推荐补货量：低库存警戒值的2倍 - 当前库存
-          const suggestedQty = Math.max(p.lowStockAlert * 2 - p.stock, p.lowStockAlert)
-
-          return {
-            product: { id: p.id, name: p.name, unit: p.unit, category: p.category?.name },
-            currentStock: p.stock,
-            lowStockAlert: p.lowStockAlert,
-            suggestedQty,
-            lastSupplier: lastPurchaseItem?.purchaseOrder?.supplier || null,
-            lastPrice: lastPurchaseItem ? Number(lastPurchaseItem.unitPrice) : Number(p.costPrice),
-            estimatedCost: suggestedQty * (lastPurchaseItem ? Number(lastPurchaseItem.unitPrice) : Number(p.costPrice)),
-          }
+      const needIds = needReorder.map((p) => p.id)
+      const recentPurchaseItems = needIds.length > 0
+        ? await prisma.purchaseOrderItem.findMany({
+          where: { productId: { in: needIds }, purchaseOrder: { tenantId: tid, status: "completed" } },
+          include: { purchaseOrder: { include: { supplier: { select: { id: true, name: true } } } } },
+          orderBy: [
+            { productId: "asc" },
+            { purchaseOrder: { orderDate: "desc" } },
+          ],
         })
-      )
+        : []
+
+      const lastPurchaseMap = new Map<string, (typeof recentPurchaseItems)[number]>()
+      for (const item of recentPurchaseItems) {
+        if (!lastPurchaseMap.has(item.productId)) {
+          lastPurchaseMap.set(item.productId, item)
+        }
+      }
+
+      const reorderSuggestions = needReorder.map((p) => {
+        const lastPurchaseItem = lastPurchaseMap.get(p.id)
+        // 推荐补货量：低库存警戒值的2倍 - 当前库存
+        const suggestedQty = Math.max(p.lowStockAlert * 2 - p.stock, p.lowStockAlert)
+
+        return {
+          product: { id: p.id, name: p.name, unit: p.unit, category: p.category?.name },
+          currentStock: p.stock,
+          lowStockAlert: p.lowStockAlert,
+          suggestedQty,
+          lastSupplier: lastPurchaseItem?.purchaseOrder?.supplier || null,
+          lastPrice: lastPurchaseItem ? Number(lastPurchaseItem.unitPrice) : Number(p.costPrice),
+          estimatedCost: suggestedQty * (lastPurchaseItem ? Number(lastPurchaseItem.unitPrice) : Number(p.costPrice)),
+        }
+      })
 
       return apiSuccess({
         total: reorderSuggestions.length,
@@ -68,30 +80,37 @@ export async function GET(request: NextRequest) {
         select: { id: true, name: true, unit: true, stock: true, costPrice: true, category: { select: { name: true } } },
       })
 
-      const now = Date.now()
-      const ageAnalysis = await Promise.all(
-        products.map(async (p) => {
-          // 找最早的入库流水
-          const earliestIn = await prisma.stockMovement.findFirst({
-            where: { tenantId: tid, productId: p.id, quantity: { gt: 0 } },
-            orderBy: { createdAt: "asc" },
-            select: { createdAt: true },
-          })
-
-          const firstInDate = earliestIn?.createdAt || new Date()
-          const ageDays = Math.floor((now - firstInDate.getTime()) / 86400000)
-          const inventoryValue = p.stock * Number(p.costPrice)
-
-          return {
-            product: { id: p.id, name: p.name, unit: p.unit, category: p.category?.name },
-            stock: p.stock,
-            inventoryValue,
-            firstInDate: firstInDate.toISOString(),
-            ageDays,
-            ageGroup: ageDays <= 30 ? "0-30天" : ageDays <= 60 ? "31-60天" : ageDays <= 90 ? "61-90天" : "90天以上",
-          }
+      const productIds = products.map((p) => p.id)
+      const earliestInGroups = productIds.length > 0
+        ? await prisma.stockMovement.groupBy({
+          by: ["productId"],
+          where: { tenantId: tid, quantity: { gt: 0 }, productId: { in: productIds } },
+          _min: { createdAt: true },
         })
-      )
+        : []
+
+      const earliestMap = new Map<string, Date>()
+      for (const g of earliestInGroups) {
+        if (g._min.createdAt) {
+          earliestMap.set(g.productId, g._min.createdAt)
+        }
+      }
+
+      const now = Date.now()
+      const ageAnalysis = products.map((p) => {
+        const firstInDate = earliestMap.get(p.id) ?? new Date()
+        const ageDays = Math.floor((now - firstInDate.getTime()) / 86400000)
+        const inventoryValue = p.stock * Number(p.costPrice)
+
+        return {
+          product: { id: p.id, name: p.name, unit: p.unit, category: p.category?.name },
+          stock: p.stock,
+          inventoryValue,
+          firstInDate: firstInDate.toISOString(),
+          ageDays,
+          ageGroup: ageDays <= 30 ? "0-30天" : ageDays <= 60 ? "31-60天" : ageDays <= 90 ? "61-90天" : "90天以上",
+        }
+      })
 
       // 按库龄分组统计
       const ageGroups: Record<string, { count: number; value: number; items: number }> = {

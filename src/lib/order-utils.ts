@@ -3,7 +3,7 @@
  */
 export function generateOrderNo(prefix: "PO" | "SO" | "TF" | "ST"): string {
   const now = new Date()
-  const date = now.toISOString().slice(0, 10).replace(/-/g, "")
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now).replace(/-/g, "")
   const rand = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0")
   return `${prefix}-${date}-${rand}`
 }

@@ -38,7 +38,9 @@ export default function CustomersPage() {
     setLoading(false)
   }, [search, typeFilter])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    void Promise.resolve().then(() => fetchData())
+  }, [fetchData])
 
   async function handleDelete(item: Customer) {
     if (!confirm(`确定要删除「${item.name}」吗？`)) return

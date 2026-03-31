@@ -46,7 +46,6 @@ function getExpiryStatus(expiryDate: string | null): { label: string; color: str
 export default function BatchesPage() {
   const [batches, setBatches] = useState<Batch[]>([])
   const [expiringBatches, setExpiringBatches] = useState<Batch[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [tab, setTab] = useState<"all" | "expiring">("all")
@@ -58,12 +57,13 @@ export default function BatchesPage() {
     const res = await api<{ items: Batch[]; total: number; totalPages: number }>(`/api/batches?${params}`)
     if (res.success && res.data) {
       setBatches(res.data.items)
-      setTotal(res.data.total)
       setTotalPages(res.data.totalPages)
     }
   }, [page, tab])
 
-  useEffect(() => { fetchBatches() }, [fetchBatches])
+  useEffect(() => {
+    void Promise.resolve().then(() => fetchBatches())
+  }, [fetchBatches])
 
   // Fetch expiring count separately
   useEffect(() => {

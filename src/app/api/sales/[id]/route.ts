@@ -10,7 +10,7 @@ interface RouteParams {
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 // 取消销售单 — 仅 owner
 export async function PUT(request: NextRequest, { params }: RouteParams) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -54,8 +54,20 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (order.status === "cancelled") return apiError("该订单已取消")
     if (order.status !== "completed") return apiError("只能取消已完成的订单")
 
+    const returnCount = await prisma.returnOrder.count({
+      where: { saleOrderId: id, tenantId: auth.tenantId },
+    })
+    if (returnCount > 0) return apiError("该销售单已有退货记录，不能取消")
+
     // 事务：取消订单 + 回滚库存 + 回滚客户余额
     await prisma.$transaction(async (tx) => {
+      const txReturnCount = await tx.returnOrder.count({
+        where: { saleOrderId: id, tenantId: auth.tenantId },
+      })
+      if (txReturnCount > 0) {
+        throw new Error("该销售单已有退货记录，不能取消")
+      }
+
       // 1. 标记订单为已取消
       await tx.saleOrder.update({
         where: { id },
@@ -83,10 +95,17 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (order.customerId) {
         const unpaid = Number(order.totalAmount) - Number(order.paidAmount)
         if (unpaid > 0) {
-          await tx.customer.update({
-            where: { id: order.customerId },
+          const updated = await tx.customer.updateMany({
+            where: {
+              id: order.customerId,
+              tenantId: auth.tenantId,
+              balance: { gte: unpaid },
+            },
             data: { balance: { decrement: unpaid } },
           })
+          if (updated.count !== 1) {
+            throw new Error("客户欠款已变更，请重试取消")
+          }
         }
       }
     })
@@ -96,6 +115,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     return apiSuccess({ message: "订单已取消" })
   } catch (error) {
     console.error("取消销售单失败:", error)
+    if (error instanceof Error && error.message) {
+      return apiError(error.message)
+    }
     return apiError("取消销售单失败", 500)
   }
 }

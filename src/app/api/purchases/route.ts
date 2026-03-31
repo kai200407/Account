@@ -5,15 +5,15 @@ import { apiSuccess, apiError } from "@/lib/api-response"
 import { generateOrderNo } from "@/lib/order-utils"
 import { logAudit } from "@/lib/audit"
 import { createStockMovement } from "@/lib/stock"
+import { getPaginationParams } from "@/lib/pagination"
 
 // 获取进货单列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
   const supplierId = url.searchParams.get("supplierId") ?? ""
 
   try {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
           items: { include: { product: true } },
         },
         orderBy: { orderDate: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.purchaseOrder.count({ where }),
@@ -51,15 +51,17 @@ export async function GET(request: NextRequest) {
 
 // 创建进货单（事务：创建单据 + 增加库存 + 更新应付款）
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
     const body = await request.json()
     const { supplierId, items, paidAmount, notes, orderDate, warehouseId } = body
+    const purchaseItems: Array<{ productId?: string; quantity?: number; unitPrice?: number }> =
+      Array.isArray(items) ? items : []
 
     if (!supplierId) return apiError("请选择供应商")
-    if (!items || items.length === 0) return apiError("请添加进货商品")
+    if (purchaseItems.length === 0) return apiError("请添加进货商品")
 
     // 验证供应商属于当前租户
     const supplier = await prisma.supplier.findFirst({
@@ -76,9 +78,29 @@ export async function POST(request: NextRequest) {
       subtotal: number
     }> = []
 
-    for (const item of items) {
+    const productIds = [
+      ...new Set(
+        purchaseItems
+          .map((item: { productId?: string }) => item.productId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      ),
+    ]
+    const products = await prisma.product.findMany({
+      where: {
+        tenantId: auth.tenantId,
+        isActive: true,
+        id: { in: productIds },
+      },
+      select: { id: true, name: true },
+    })
+    const productMap = new Map(products.map((p) => [p.id, p]))
+
+    for (const item of purchaseItems) {
       if (!item.productId || !item.quantity || item.quantity <= 0) {
         return apiError("商品信息不完整")
+      }
+      if (!productMap.has(item.productId)) {
+        return apiError("商品不存在或无权限")
       }
       const subtotal = (item.quantity ?? 0) * (item.unitPrice ?? 0)
       totalAmount += subtotal

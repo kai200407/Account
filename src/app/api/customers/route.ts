@@ -5,14 +5,15 @@ import { apiSuccess, apiError } from "@/lib/api-response"
 import { logAudit } from "@/lib/audit"
 
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
   const search = url.searchParams.get("search") ?? ""
   const type = url.searchParams.get("type") ?? ""
   const sort = url.searchParams.get("sort") ?? ""
-  const limit = parseInt(url.searchParams.get("limit") ?? "0")
+  const rawLimit = Number.parseInt(url.searchParams.get("limit") ?? "", 10)
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 0
 
   try {
     // 按最近交易时间排序
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
 
       if (customerIds.length > 0) {
         const customers = await prisma.customer.findMany({
-          where: { id: { in: customerIds }, isActive: true },
+          where: { tenantId: auth.tenantId, id: { in: customerIds }, isActive: true },
         })
 
         // 保持最近交易排序
@@ -67,7 +68,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {

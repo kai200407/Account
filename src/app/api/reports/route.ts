@@ -3,8 +3,18 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 
+const CN_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" })
+
+function formatCNDate(date: Date) {
+  return CN_DATE_FORMATTER.format(date)
+}
+
+function parseCNDateRange(dateStr: string, end = false) {
+  return new Date(`${dateStr}T${end ? "23:59:59" : "00:00:00"}+08:00`)
+}
+
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
@@ -17,8 +27,8 @@ export async function GET(request: NextRequest) {
   const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const defaultEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
 
-  const start = startDate ? new Date(startDate) : defaultStart
-  const end = endDate ? new Date(endDate + "T23:59:59") : defaultEnd
+  const start = startDate ? parseCNDateRange(startDate) : defaultStart
+  const end = endDate ? parseCNDateRange(endDate, true) : defaultEnd
 
   const dateFilter = { gte: start, lte: end }
 
@@ -53,7 +63,7 @@ export async function GET(request: NextRequest) {
       const dailyMap = new Map<string, { revenue: number; profit: number; orders: number }>()
 
       for (const sale of sales) {
-        const day = sale.orderDate.toISOString().slice(0, 10)
+        const day = formatCNDate(sale.orderDate)
         const existing = dailyMap.get(day) ?? { revenue: 0, profit: 0, orders: 0 }
         dailyMap.set(day, {
           revenue: existing.revenue + Number(sale.totalAmount),
@@ -418,7 +428,7 @@ export async function GET(request: NextRequest) {
       // 获取商品信息
       const productIds = [...new Set(stocktakes.flatMap((s) => s.items.map((i) => i.productId)))]
       const products = await prisma.product.findMany({
-        where: { id: { in: productIds } },
+        where: { tenantId: auth.tenantId, id: { in: productIds } },
         select: { id: true, name: true, unit: true },
       })
       const prodMap = Object.fromEntries(products.map((p) => [p.id, p]))

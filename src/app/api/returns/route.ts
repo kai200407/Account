@@ -4,15 +4,15 @@ import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { logAudit } from "@/lib/audit"
 import { createStockMovement } from "@/lib/stock"
+import { getPaginationParams } from "@/lib/pagination"
 
 // 获取退货单列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
 
   try {
     const where = { tenantId: auth.tenantId }
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
           items: { include: { product: true } },
         },
         orderBy: { returnDate: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.returnOrder.count({ where }),
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
 
 // 创建退货单
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
@@ -124,8 +124,33 @@ export async function POST(request: NextRequest) {
     const totalAmount = returnItems.reduce((sum: number, i) => sum + i.subtotal, 0)
     const totalProfitReduction = returnItems.reduce((sum: number, i) => sum + i.profitReduction, 0)
 
+    const soldQtyMap = new Map(saleOrder.items.map((item) => [item.productId, item.quantity]))
+
     // 事务
     const result = await prisma.$transaction(async (tx) => {
+      // 并发保护：校验累计退货数量不能超过原销售数量
+      const returnedItems = await tx.returnOrderItem.findMany({
+        where: {
+          returnOrder: {
+            saleOrderId,
+            tenantId: auth.tenantId,
+          },
+        },
+        select: { productId: true, quantity: true },
+      })
+      const returnedQtyMap = new Map<string, number>()
+      for (const item of returnedItems) {
+        returnedQtyMap.set(item.productId, (returnedQtyMap.get(item.productId) ?? 0) + item.quantity)
+      }
+
+      for (const item of returnItems) {
+        const soldQty = soldQtyMap.get(item.productId) ?? 0
+        const returnedQty = returnedQtyMap.get(item.productId) ?? 0
+        if (returnedQty + item.quantity > soldQty) {
+          throw new Error("累计退货数量不能超过销售数量")
+        }
+      }
+
       // 1. 创建退货单
       const returnOrder = await tx.returnOrder.create({
         data: {
@@ -172,13 +197,34 @@ export async function POST(request: NextRequest) {
         data: { profit: { decrement: totalProfitReduction } },
       })
 
-      // 4. 调减客户应收余额（如果有赊账）
+      // 4. 调减客户应收余额（如果有赊账，不允许余额为负）
       if (saleOrder.customerId) {
-        // 退货金额从客户欠款中扣减（退货相当于减少了客户的消费）
-        await tx.customer.update({
-          where: { id: saleOrder.customerId },
-          data: { balance: { decrement: totalAmount } },
+        const customer = await tx.customer.findFirst({
+          where: { id: saleOrder.customerId, tenantId: auth.tenantId },
+          select: { balance: true },
         })
+
+        if (!customer) {
+          throw new Error("客户不存在或无权限")
+        }
+
+        const currentBalance = Number(customer.balance)
+        const decrementAmount = Math.min(currentBalance, totalAmount)
+
+        if (decrementAmount > 0) {
+          const updated = await tx.customer.updateMany({
+            where: {
+              id: saleOrder.customerId,
+              tenantId: auth.tenantId,
+              balance: { gte: decrementAmount },
+            },
+            data: { balance: { decrement: decrementAmount } },
+          })
+
+          if (updated.count !== 1) {
+            throw new Error("客户欠款已变更，请重试")
+          }
+        }
       }
 
       return returnOrder
@@ -189,6 +235,9 @@ export async function POST(request: NextRequest) {
     return apiSuccess(result, 201)
   } catch (error) {
     console.error("创建退货单失败:", error)
+    if (error instanceof Error && error.message) {
+      return apiError(error.message)
+    }
     return apiError("创建退货单失败", 500)
   }
 }

@@ -7,7 +7,7 @@ import { logAudit } from "@/lib/audit"
 
 // 获取员工列表（仅 owner）
 export async function GET(request: NextRequest) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
 
   try {
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
 // 创建员工（仅 owner）
 export async function POST(request: NextRequest) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
 
   try {

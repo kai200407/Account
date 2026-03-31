@@ -1,23 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
-import { verifyToken } from "@/lib/auth"
 import { apiError } from "@/lib/api-response"
 import * as XLSX from "xlsx"
 
+const CN_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" })
+
+function formatCNDate(date: Date) {
+  return CN_DATE_FORMATTER.format(date)
+}
+
+function parseCNDateRange(dateStr: string, end = false) {
+  return new Date(`${dateStr}T${end ? "23:59:59" : "00:00:00"}+08:00`)
+}
+
 export async function GET(request: NextRequest) {
-  // 支持 query param token（浏览器下载用）
   const url = new URL(request.url)
-  const queryToken = url.searchParams.get("token")
-  let auth = requireAuth(request)
-  if (isAuthError(auth) && queryToken) {
-    const payload = verifyToken(queryToken)
-    if (payload) {
-      auth = payload
-    } else {
-      return apiError("登录已过期", 401)
-    }
-  }
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const type = url.searchParams.get("type") ?? ""
@@ -25,8 +24,8 @@ export async function GET(request: NextRequest) {
   const endDate = url.searchParams.get("end") ?? ""
 
   const now = new Date()
-  const start = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth(), 1)
-  const end = endDate ? new Date(endDate + "T23:59:59") : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
+  const start = startDate ? parseCNDateRange(startDate) : new Date(now.getFullYear(), now.getMonth(), 1)
+  const end = endDate ? parseCNDateRange(endDate, true) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
   const dateFilter = { gte: start, lte: end }
 
   try {
@@ -42,7 +41,7 @@ export async function GET(request: NextRequest) {
       const rows = sales.flatMap((order) =>
         order.items.map((item) => ({
           "单号": order.orderNo,
-          "日期": order.orderDate.toISOString().slice(0, 10),
+          "日期": formatCNDate(order.orderDate),
           "客户": order.customer?.name ?? "散客",
           "类型": order.saleType === "wholesale" ? "批发" : "零售",
           "商品": item.product.name,
@@ -69,7 +68,7 @@ export async function GET(request: NextRequest) {
       const rows = purchases.flatMap((order) =>
         order.items.map((item) => ({
           "单号": order.orderNo,
-          "日期": order.orderDate.toISOString().slice(0, 10),
+          "日期": formatCNDate(order.orderDate),
           "供应商": order.supplier.name,
           "商品": item.product.name,
           "数量": item.quantity,
@@ -118,7 +117,7 @@ export async function GET(request: NextRequest) {
     }
 
     const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" })
-    const filename = `${type}_${start.toISOString().slice(0, 10)}_${end.toISOString().slice(0, 10)}.xlsx`
+    const filename = `${type}_${formatCNDate(start)}_${formatCNDate(end)}.xlsx`
 
     return new NextResponse(buf, {
       headers: {

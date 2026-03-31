@@ -73,14 +73,39 @@ export async function createStockMovement(
     throw new Error("库存变动数量不能为0")
   }
 
-  // 更新商品库存
-  const updatedProduct = await tx.product.update({
-    where: { id: productId },
+  // 多租户强校验：禁止跨租户修改库存
+  const product = await tx.product.findFirst({
+    where: { id: productId, tenantId },
+    select: { id: true },
+  })
+  if (!product) {
+    throw new Error("商品不存在或无权限")
+  }
+
+  const updated = await tx.product.updateMany({
+    where: {
+      id: productId,
+      tenantId,
+      ...(quantity < 0 ? { stock: { gte: Math.abs(quantity) } } : {}),
+    },
     data: {
       stock: { increment: quantity },
     },
+  })
+  if (updated.count !== 1) {
+    if (quantity < 0) {
+      throw new Error("库存不足")
+    }
+    throw new Error("库存更新失败：商品不存在或无权限")
+  }
+
+  const updatedProduct = await tx.product.findUnique({
+    where: { id: productId },
     select: { stock: true },
   })
+  if (!updatedProduct) {
+    throw new Error("库存更新失败：商品不存在")
+  }
 
   // 创建流水记录
   const movement = await tx.stockMovement.create({
@@ -138,16 +163,44 @@ async function updateWarehouseStock(
   tenantId: string,
   delta: number
 ) {
+  const warehouse = await tx.warehouse.findFirst({
+    where: { id: warehouseId, tenantId },
+    select: { id: true },
+  })
+  if (!warehouse) {
+    throw new Error("仓库不存在或无权限")
+  }
+
   const existing = await tx.warehouseStock.findUnique({
     where: { warehouseId_productId: { warehouseId, productId } },
   })
 
   if (existing) {
-    await tx.warehouseStock.update({
-      where: { id: existing.id },
-      data: { quantity: { increment: delta } },
-    })
+    if (existing.tenantId !== tenantId) {
+      throw new Error("仓库库存数据租户不匹配")
+    }
+    if (delta < 0) {
+      const updated = await tx.warehouseStock.updateMany({
+        where: {
+          id: existing.id,
+          tenantId,
+          quantity: { gte: Math.abs(delta) },
+        },
+        data: { quantity: { increment: delta } },
+      })
+      if (updated.count !== 1) {
+        throw new Error("仓库库存不足")
+      }
+    } else {
+      await tx.warehouseStock.update({
+        where: { id: existing.id },
+        data: { quantity: { increment: delta } },
+      })
+    }
   } else {
+    if (delta < 0) {
+      throw new Error("仓库库存不足")
+    }
     await tx.warehouseStock.create({
       data: {
         tenantId,

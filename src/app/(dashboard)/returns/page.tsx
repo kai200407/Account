@@ -45,7 +45,9 @@ export default function ReturnsPage() {
     setLoading(false)
   }, [page])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    void Promise.resolve().then(() => fetchData())
+  }, [fetchData])
 
   function formatDate(dateStr: string) {
     return new Date(dateStr).toLocaleDateString("zh-CN", {

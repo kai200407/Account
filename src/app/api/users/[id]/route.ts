@@ -11,7 +11,7 @@ interface RouteParams {
 
 // 更新员工（启用/禁用、修改信息）
 export async function PUT(request: NextRequest, { params }: RouteParams) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -52,7 +52,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
 // 重置密码
 export async function POST(request: NextRequest, { params }: RouteParams) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 

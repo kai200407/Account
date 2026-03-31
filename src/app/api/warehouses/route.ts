@@ -6,7 +6,7 @@ import { logAudit } from "@/lib/audit"
 
 // 获取仓库列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
 // 创建仓库
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {

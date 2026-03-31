@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { api } from "@/lib/api-client"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -42,7 +42,7 @@ export default function StocktakesPage() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
 
-  const fetchOrders = () => {
+  const fetchOrders = useCallback(() => {
     api<{ items: StocktakeOrder[]; total: number; totalPages: number }>(`/api/stocktakes?page=${page}`).then((res) => {
       if (res.success && res.data) {
         setOrders(res.data.items)
@@ -50,9 +50,11 @@ export default function StocktakesPage() {
         setTotalPages(res.data.totalPages)
       }
     })
-  }
+  }, [page])
 
-  useEffect(() => { fetchOrders() }, [page])
+  useEffect(() => {
+    fetchOrders()
+  }, [fetchOrders])
 
   const handleCreate = async () => {
     const res = await api<{ id: string }>("/api/stocktakes", {

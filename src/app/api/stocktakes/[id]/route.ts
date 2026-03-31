@@ -11,7 +11,7 @@ interface RouteParams {
 
 // 获取盘点单详情
 export async function GET(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Enrich with product info
     const productIds = order.items.map((i) => i.productId)
     const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { tenantId: auth.tenantId, id: { in: productIds } },
       select: { id: true, name: true, unit: true, stock: true },
     })
     const prodMap = Object.fromEntries(products.map((p) => [p.id, p]))
@@ -33,7 +33,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Warehouse name
     let warehouseName = null
     if (order.warehouseId) {
-      const wh = await prisma.warehouse.findUnique({ where: { id: order.warehouseId }, select: { name: true } })
+      const wh = await prisma.warehouse.findFirst({
+        where: { id: order.warehouseId, tenantId: auth.tenantId },
+        select: { name: true },
+      })
       warehouseName = wh?.name
     }
 
@@ -50,7 +53,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
 // 更新盘点单: start(开始盘点) | count(录入数量) | complete(确认完成,自动调账) | cancel(取消)
 export async function PUT(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -77,28 +80,53 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // 录入实际数量
     if (action === "count") {
       if (order.status !== "in_progress") return apiError("只能在盘点中录入数量")
-      const { counts } = body // [{ itemId, actualQty }]
-      if (!counts?.length) return apiError("请提供盘点数量")
+      const counts = Array.isArray(body.counts) ? body.counts : [] // [{ itemId, actualQty }]
+      if (counts.length === 0) return apiError("请提供盘点数量")
 
-      for (const c of counts) {
-        const item = order.items.find((i) => i.id === c.itemId)
-        if (!item) continue
-        const actualQty = parseInt(c.actualQty)
-        if (isNaN(actualQty) || actualQty < 0) continue
-        await prisma.stocktakeItem.update({
-          where: { id: c.itemId },
-          data: {
-            actualQty,
-            diffQty: actualQty - item.systemQty,
-          },
+      const itemMap = new Map(order.items.map((item) => [item.id, item]))
+      const seen = new Set<string>()
+      const updates: Array<{ id: string; actualQty: number; diffQty: number }> = []
+
+      for (const c of counts as Array<{ itemId?: string; actualQty?: number | string }>) {
+        if (!c?.itemId || typeof c.itemId !== "string") {
+          return apiError("存在无效的盘点项")
+        }
+        if (seen.has(c.itemId)) {
+          return apiError("存在重复的盘点项")
+        }
+        seen.add(c.itemId)
+
+        const item = itemMap.get(c.itemId)
+        if (!item) {
+          return apiError("盘点项不存在或不属于当前盘点单")
+        }
+
+        const actualQty = Number.parseInt(String(c.actualQty), 10)
+        if (!Number.isInteger(actualQty) || actualQty < 0) {
+          return apiError(`商品「${item.productId}」盘点数量无效`)
+        }
+
+        updates.push({
+          id: c.itemId,
+          actualQty,
+          diffQty: actualQty - item.systemQty,
         })
       }
+
+      await prisma.$transaction(
+        updates.map((u) =>
+          prisma.stocktakeItem.update({
+            where: { id: u.id },
+            data: { actualQty: u.actualQty, diffQty: u.diffQty },
+          })
+        )
+      )
       return apiSuccess({ message: "数量已保存" })
     }
 
     // 确认完成 — 仅 owner，自动生成 adjustment 流水
     if (action === "complete") {
-      const ownerAuth = requireOwner(request)
+      const ownerAuth = await requireOwner(request)
       if (isAuthError(ownerAuth)) return ownerAuth
 
       if (order.status !== "in_progress") return apiError("只能确认进行中的盘点单")

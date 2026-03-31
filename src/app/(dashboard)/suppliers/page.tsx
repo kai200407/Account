@@ -34,7 +34,9 @@ export default function SuppliersPage() {
     setLoading(false)
   }, [search])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    void Promise.resolve().then(() => fetchData())
+  }, [fetchData])
 
   async function handleDelete(item: Supplier) {
     if (!confirm(`确定要删除「${item.name}」吗？`)) return

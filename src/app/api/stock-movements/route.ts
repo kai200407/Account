@@ -2,15 +2,15 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { getPaginationParams } from "@/lib/pagination"
 
 // 获取库存流水列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
   const productId = url.searchParams.get("productId") ?? ""
   const type = url.searchParams.get("type") ?? ""
   const startDate = url.searchParams.get("startDate") ?? ""
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
           product: { select: { id: true, name: true, unit: true, stock: true } },
         },
         orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.stockMovement.count({ where }),

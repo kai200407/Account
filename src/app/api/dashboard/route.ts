@@ -4,7 +4,7 @@ import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
@@ -29,7 +29,9 @@ export async function GET(request: NextRequest) {
       }),
       // 低库存商品
       prisma.$queryRawUnsafe<Array<{ id: string; name: string; stock: number; unit: string; low_stock_alert: number }>>(
-        `SELECT id, name, stock, unit, low_stock_alert FROM products WHERE tenant_id = ? AND is_active = 1 AND stock <= low_stock_alert`,
+        `SELECT id, name, stock, unit, low_stock_alert
+        FROM products
+        WHERE tenant_id = ? AND is_active = 1 AND stock <= low_stock_alert`,
         tid
       ),
       // 最近5笔销售
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
     let popularProducts: Array<{ id: string; name: string; retailPrice: number; imageUrl: string | null }> = []
     if (popularIds.length > 0) {
       const prods = await prisma.product.findMany({
-        where: { id: { in: popularIds }, isActive: true },
+        where: { tenantId: tid, id: { in: popularIds }, isActive: true },
         select: { id: true, name: true, retailPrice: true, imageUrl: true },
       })
       // 保持销量排序

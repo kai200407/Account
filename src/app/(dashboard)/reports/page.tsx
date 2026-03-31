@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { getToken } from "@/lib/api-client"
 import { Download } from "lucide-react"
+import { toast } from "sonner"
 
 interface ProfitData {
   totalRevenue: number
@@ -55,7 +56,7 @@ export default function ReportsPage() {
   // 日期范围（默认本月）
   const now = new Date()
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`
-  const today = now.toISOString().slice(0, 10)
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai" }).format(now)
 
   const [startDate, setStartDate] = useState(monthStart)
   const [endDate, setEndDate] = useState(today)
@@ -66,6 +67,42 @@ export default function ReportsPage() {
   const [trend, setTrend] = useState<TrendData | null>(null)
   const [inventory, setInventory] = useState<InventoryData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const downloadExport = useCallback(async (type: "sales" | "purchases") => {
+    const token = getToken()
+    if (!token) {
+      toast.error("登录已过期，请重新登录")
+      return
+    }
+
+    const url = `/api/export?type=${type}&start=${startDate}&end=${endDate}`
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) {
+      let message = "导出失败"
+      try {
+        const json = await res.json()
+        if (json?.error) message = json.error
+      } catch {}
+      toast.error(message)
+      return
+    }
+
+    const blob = await res.blob()
+    const disposition = res.headers.get("content-disposition") || ""
+    const match = disposition.match(/filename=\"?([^\";]+)\"?/)
+    const fileName = match?.[1] || `${type}.xlsx`
+
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = blobUrl
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(blobUrl)
+  }, [startDate, endDate])
 
   const fetchReport = useCallback(async (type: string) => {
     setLoading(true)
@@ -85,7 +122,7 @@ export default function ReportsPage() {
   }, [startDate, endDate])
 
   useEffect(() => {
-    fetchReport(tab)
+    void Promise.resolve().then(() => fetchReport(tab))
   }, [tab, fetchReport])
 
   return (
@@ -101,13 +138,7 @@ export default function ReportsPage() {
               key={t}
               variant="outline"
               size="sm"
-              onClick={() => {
-                const token = getToken()
-                window.open(
-                  `/api/export?type=${t}&start=${startDate}&end=${endDate}&token=${token}`,
-                  "_blank"
-                )
-              }}
+              onClick={() => { void downloadExport(t as "sales" | "purchases") }}
             >
               <Download className="h-3.5 w-3.5 mr-1" />
               {label}
@@ -433,15 +464,24 @@ function WarehouseReportPanel({ type, startDate, endDate, loading: parentLoading
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setLoading(true)
+    let active = true
     const noDateTypes = ["warehouse_util", "batch_expiry"]
     const params = noDateTypes.includes(type)
       ? `type=${type}`
       : `type=${type}&start=${startDate}&end=${endDate}`
-    api<Record<string, unknown>>(`/api/reports?${params}`).then((res) => {
+
+    const load = async () => {
+      setLoading(true)
+      const res = await api<Record<string, unknown>>(`/api/reports?${params}`)
+      if (!active) return
       if (res.success && res.data) setData(res.data)
       setLoading(false)
-    })
+    }
+
+    void load()
+    return () => {
+      active = false
+    }
   }, [type, startDate, endDate])
 
   if (loading || parentLoading) return <p className="text-center text-muted-foreground py-8">加载中...</p>

@@ -5,15 +5,15 @@ import { apiSuccess, apiError } from "@/lib/api-response"
 import { generateOrderNo } from "@/lib/order-utils"
 import { logAudit } from "@/lib/audit"
 import { createStockMovement } from "@/lib/stock"
+import { getPaginationParams } from "@/lib/pagination"
 
 // 获取销售单列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
   const customerId = url.searchParams.get("customerId") ?? ""
   const saleType = url.searchParams.get("saleType") ?? ""
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
           items: { include: { product: true } },
         },
         orderBy: { orderDate: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.saleOrder.count({ where }),
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 
 // 创建销售单（事务：创建单据 + 扣库存 + 算利润 + 更新应收款）
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
@@ -174,6 +174,11 @@ export async function POST(request: NextRequest) {
     return apiSuccess(result, 201)
   } catch (error) {
     console.error("创建销售单失败:", error)
+    if (error instanceof Error && error.message) {
+      if (error.message.includes("库存不足") || error.message.includes("无权限")) {
+        return apiError(error.message)
+      }
+    }
     return apiError("创建销售单失败", 500)
   }
 }

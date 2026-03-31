@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { logAudit } from "@/lib/audit"
+import { getPaginationParams } from "@/lib/pagination"
 
 /**
  * 过滤商品数据中的进价字段（staff 不可见）
@@ -15,14 +16,13 @@ function filterCostPrice(product: Record<string, unknown>): Record<string, unkno
 
 // 获取商品列表
 export async function GET(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
   const search = url.searchParams.get("search") ?? ""
   const categoryId = url.searchParams.get("categoryId") ?? ""
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
   const sort = url.searchParams.get("sort") ?? ""
 
   try {
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 支持按销量排序（常用商品）
-    let orderBy: Record<string, unknown> = { createdAt: "desc" as const }
+    const orderBy: Record<string, unknown> = { createdAt: "desc" as const }
     if (sort === "popular") {
       // 按近30天销量排序：先获取商品 ID 列表
       const thirtyDaysAgo = new Date()
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
         where,
         include: { category: true },
         orderBy,
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.product.count({ where }),
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
 
 // 创建商品
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {

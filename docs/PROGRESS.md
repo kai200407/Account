@@ -8,7 +8,7 @@
 |------|------|
 | **项目名** | jizhang（记账系统） |
 | **路径** | /Users/arden/Desktop/jizhang |
-| **技术栈** | Next.js 15 + Prisma 6 + SQLite(开发) + TailwindCSS |
+| **技术栈** | Next.js 16 + Prisma 6 + SQLite(开发) + TailwindCSS |
 | **部署目标** | 香港云服务器 16核+16GB，部署时切换 PostgreSQL |
 | **用户数** | 7人同时使用（多个家庭/店铺） |
 | **业务** | 电疗灯具、厨房卫浴批发+零售 |

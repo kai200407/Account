@@ -2,10 +2,11 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireOwner, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { getPaginationParams } from "@/lib/pagination"
 
 // 获取审计日志（仅 owner）
 export async function GET(request: NextRequest) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
 
   const url = new URL(request.url)
@@ -13,8 +14,7 @@ export async function GET(request: NextRequest) {
   const userId = url.searchParams.get("userId") ?? ""
   const startDate = url.searchParams.get("startDate") ?? ""
   const endDate = url.searchParams.get("endDate") ?? ""
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
 
   try {
     const where = {
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       prisma.auditLog.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.auditLog.count({ where }),

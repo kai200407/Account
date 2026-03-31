@@ -67,7 +67,9 @@ export function OrderList({ type }: OrderListProps) {
     setLoading(false)
   }, [apiPath, page])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    void Promise.resolve().then(() => fetchData())
+  }, [fetchData])
 
   async function handleCancel(order: Order) {
     const label = isPurchase ? "进货单" : "销售单"

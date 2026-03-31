@@ -77,7 +77,7 @@ export default function ProductsPage() {
   }, [])
 
   useEffect(() => {
-    fetchProducts()
+    void Promise.resolve().then(() => fetchProducts())
   }, [fetchProducts])
 
   async function handleDelete(product: Product) {

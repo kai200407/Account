@@ -8,7 +8,7 @@ interface RouteParams {
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
@@ -21,13 +21,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     // Enrich with names
     const [fromWh, toWh] = await Promise.all([
-      prisma.warehouse.findUnique({ where: { id: order.fromWarehouseId }, select: { name: true } }),
-      prisma.warehouse.findUnique({ where: { id: order.toWarehouseId }, select: { name: true } }),
+      prisma.warehouse.findFirst({ where: { id: order.fromWarehouseId, tenantId: auth.tenantId }, select: { name: true } }),
+      prisma.warehouse.findFirst({ where: { id: order.toWarehouseId, tenantId: auth.tenantId }, select: { name: true } }),
     ])
 
     const productIds = order.items.map((i) => i.productId)
     const products = await prisma.product.findMany({
-      where: { id: { in: productIds } },
+      where: { tenantId: auth.tenantId, id: { in: productIds } },
       select: { id: true, name: true, unit: true },
     })
     const prodMap = Object.fromEntries(products.map((p) => [p.id, p]))

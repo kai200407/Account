@@ -2,6 +2,7 @@ import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
+import { getPaginationParams } from "@/lib/pagination"
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -9,13 +10,12 @@ interface RouteParams {
 
 // 获取单个商品的库存流水
 export async function GET(request: NextRequest, { params }: RouteParams) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
   const { id } = await params
 
   const url = new URL(request.url)
-  const page = parseInt(url.searchParams.get("page") ?? "1")
-  const limit = parseInt(url.searchParams.get("limit") ?? "20")
+  const { page, limit, skip } = getPaginationParams(url)
 
   try {
     // 验证商品属于当前租户
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       prisma.stockMovement.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        skip: (page - 1) * limit,
+        skip,
         take: limit,
       }),
       prisma.stockMovement.count({ where }),

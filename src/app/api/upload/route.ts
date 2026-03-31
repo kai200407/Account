@@ -5,15 +5,16 @@ import path from "path"
 import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 
-const UPLOAD_DIR = path.join(process.cwd(), "public/uploads/products")
 const MAX_SIZE = 2 * 1024 * 1024 // 2MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
 
 export async function POST(request: NextRequest) {
-  const auth = requireAuth(request)
+  const auth = await requireAuth(request)
   if (isAuthError(auth)) return auth
 
   try {
+    const uploadDir = path.join(process.cwd(), "public/uploads/products", auth.tenantId)
+
     const formData = await request.formData()
     const file = formData.get("file") as File | null
 
@@ -26,20 +27,20 @@ export async function POST(request: NextRequest) {
     }
 
     // 确保目录存在
-    if (!existsSync(UPLOAD_DIR)) {
-      mkdirSync(UPLOAD_DIR, { recursive: true })
+    if (!existsSync(uploadDir)) {
+      mkdirSync(uploadDir, { recursive: true })
     }
 
     // 生成文件名
     const ext = file.type.split("/")[1] === "jpeg" ? "jpg" : file.type.split("/")[1]
     const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
-    const filePath = path.join(UPLOAD_DIR, fileName)
+    const filePath = path.join(uploadDir, fileName)
 
     // 写入文件
     const buffer = Buffer.from(await file.arrayBuffer())
     await writeFile(filePath, buffer)
 
-    const imageUrl = `/uploads/products/${fileName}`
+    const imageUrl = `/uploads/products/${auth.tenantId}/${fileName}`
     return apiSuccess({ imageUrl }, 201)
   } catch (error) {
     console.error("上传图片失败:", error)

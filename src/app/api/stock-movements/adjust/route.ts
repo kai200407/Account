@@ -7,7 +7,7 @@ import { logAudit } from "@/lib/audit"
 
 // 手动库存调整 — 仅 owner
 export async function POST(request: NextRequest) {
-  const auth = requireOwner(request)
+  const auth = await requireOwner(request)
   if (isAuthError(auth)) return auth
 
   try {
