@@ -13,11 +13,14 @@ export type StockMovementType =
   | "cancel_purchase"  // 取消采购（回滚出库）
   | "cancel_sale"      // 取消销售（回滚入库）
   | "adjustment"       // 手动调整
+  | "transfer_in"      // 调拨入库
+  | "transfer_out"     // 调拨出库
 
 export type StockRefType =
   | "purchase_order"
   | "sale_order"
   | "return_order"
+  | "transfer_order"
   | "manual"
 
 export interface CreateStockMovementParams {
@@ -26,6 +29,7 @@ export interface CreateStockMovementParams {
   type: StockMovementType
   /** 正数=入库, 负数=出库 */
   quantity: number
+  warehouseId?: string
   refType?: StockRefType
   refId?: string
   refNo?: string
@@ -56,6 +60,7 @@ export async function createStockMovement(
     productId,
     type,
     quantity,
+    warehouseId,
     refType,
     refId,
     refNo,
@@ -82,6 +87,7 @@ export async function createStockMovement(
     data: {
       tenantId,
       productId,
+      warehouseId: warehouseId ?? null,
       type,
       quantity,
       balanceAfter: updatedProduct.stock,
@@ -93,6 +99,11 @@ export async function createStockMovement(
       operatorName,
     },
   })
+
+  // 如果指定了仓库，同步更新仓库库存
+  if (warehouseId) {
+    await updateWarehouseStock(tx, warehouseId, productId, tenantId, quantity)
+  }
 
   return movement
 }
@@ -115,4 +126,35 @@ export async function createStockMovements(
     movements.push(movement)
   }
   return movements
+}
+
+/**
+ * 更新仓库库存（upsert）
+ */
+async function updateWarehouseStock(
+  tx: TxClient,
+  warehouseId: string,
+  productId: string,
+  tenantId: string,
+  delta: number
+) {
+  const existing = await tx.warehouseStock.findUnique({
+    where: { warehouseId_productId: { warehouseId, productId } },
+  })
+
+  if (existing) {
+    await tx.warehouseStock.update({
+      where: { id: existing.id },
+      data: { quantity: { increment: delta } },
+    })
+  } else {
+    await tx.warehouseStock.create({
+      data: {
+        tenantId,
+        warehouseId,
+        productId,
+        quantity: delta,
+      },
+    })
+  }
 }
