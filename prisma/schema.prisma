@@ -31,6 +31,7 @@ model Tenant {
   payments       Payment[]
   returnOrders   ReturnOrder[]
   auditLogs      AuditLog[]
+  stockMovements StockMovement[]
 
   @@map("tenants")
 }
@@ -95,6 +96,7 @@ model Product {
   purchaseOrderItems PurchaseOrderItem[]
   saleOrderItems     SaleOrderItem[]
   returnOrderItems   ReturnOrderItem[]
+  stockMovements     StockMovement[]
 
   @@index([tenantId])
   @@index([tenantId, name])
@@ -306,6 +308,34 @@ model ReturnOrderItem {
 
   @@index([returnOrderId])
   @@map("return_order_items")
+}
+
+// ==========================================
+// 库存流水
+// ==========================================
+
+model StockMovement {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  productId    String   @map("product_id")
+  type         String   // purchase_in | sale_out | return_in | cancel_purchase | cancel_sale | adjustment
+  quantity     Int      // 正数=入库, 负数=出库
+  balanceAfter Int      @map("balance_after") // 变动后库存
+  refType      String?  @map("ref_type")   // purchase_order | sale_order | return_order | manual
+  refId        String?  @map("ref_id")
+  refNo        String?  @map("ref_no")
+  notes        String?
+  operatorId   String   @map("operator_id")
+  operatorName String   @map("operator_name")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, productId])
+  @@index([tenantId, createdAt])
+  @@map("stock_movements")
 }
 
 // ==========================================
