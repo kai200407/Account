@@ -86,6 +86,7 @@ model Product {
   specialPrice   Decimal? @map("special_price")
   stock          Int      @default(0)
   lowStockAlert  Int      @default(10) @map("low_stock_alert")
+  enableBatchTracking Boolean @default(false) @map("enable_batch_tracking")
   imageUrl       String?  @map("image_url")
   isActive       Boolean  @default(true) @map("is_active")
   notes          String?
@@ -98,10 +99,36 @@ model Product {
   saleOrderItems     SaleOrderItem[]
   returnOrderItems   ReturnOrderItem[]
   stockMovements     StockMovement[]
+  batches            Batch[]
 
   @@index([tenantId])
   @@index([tenantId, name])
   @@map("products")
+}
+
+// ==========================================
+// 批次管理
+// ==========================================
+
+model Batch {
+  id             String    @id @default(cuid())
+  tenantId       String    @map("tenant_id")
+  productId      String    @map("product_id")
+  batchNo        String    @map("batch_no")
+  quantity       Int       @default(0)
+  productionDate DateTime? @map("production_date")
+  expiryDate     DateTime? @map("expiry_date")
+  purchaseOrderId String?  @map("purchase_order_id")
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, productId])
+  @@index([tenantId, expiryDate])
+  @@map("batches")
 }
 
 // ==========================================
