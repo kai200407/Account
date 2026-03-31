@@ -16,6 +16,7 @@ import {
   Undo2,
   Settings,
   ClipboardList,
+  Building2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -27,8 +28,9 @@ const navItems = [
   { href: "/purchases", label: "进货", icon: Truck },
   { href: "/returns", label: "退货", icon: Undo2 },
   { href: "/inventory", label: "库存", icon: ClipboardList },
+  { href: "/warehouses", label: "仓库", icon: Warehouse },
   { href: "/customers", label: "客户", icon: Users },
-  { href: "/suppliers", label: "供应商", icon: Warehouse },
+  { href: "/suppliers", label: "供应商", icon: Building2 },
   { href: "/payments", label: "收付款", icon: Wallet },
   { href: "/reports", label: "报表", icon: FileText },
 ]
