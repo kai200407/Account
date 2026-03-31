@@ -69,7 +69,8 @@ export default function ReportsPage() {
 
   const fetchReport = useCallback(async (type: string) => {
     setLoading(true)
-    const params = type === "trend" || type === "inventory"
+    const noDateTypes = ["trend", "inventory", "warehouse_util", "batch_expiry"]
+    const params = noDateTypes.includes(type)
       ? `type=${type}`
       : `type=${type}&start=${startDate}&end=${endDate}`
     const res = await api<unknown>(`/api/reports?${params}`)
@@ -129,12 +130,15 @@ export default function ReportsPage() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="w-full">
+        <TabsList className="w-full flex-wrap h-auto gap-0.5 p-1">
           <TabsTrigger value="profit" className="flex-1 text-xs">利润</TabsTrigger>
           <TabsTrigger value="trend" className="flex-1 text-xs">趋势</TabsTrigger>
           <TabsTrigger value="inventory" className="flex-1 text-xs">库存</TabsTrigger>
           <TabsTrigger value="products" className="flex-1 text-xs">商品</TabsTrigger>
           <TabsTrigger value="customers" className="flex-1 text-xs">客户</TabsTrigger>
+          <TabsTrigger value="movements" className="flex-1 text-xs">出入库</TabsTrigger>
+          <TabsTrigger value="turnover" className="flex-1 text-xs">周转</TabsTrigger>
+          <TabsTrigger value="stocktake_variance" className="flex-1 text-xs">盘差</TabsTrigger>
         </TabsList>
 
         {/* 利润报表 */}
@@ -392,7 +396,227 @@ export default function ReportsPage() {
             </Card>
           )}
         </TabsContent>
+
+        {/* 出入库汇总 */}
+        <TabsContent value="movements" className="space-y-4">
+          <WarehouseReportPanel type="movements" startDate={startDate} endDate={endDate} loading={loading} />
+        </TabsContent>
+
+        {/* 库存周转率 */}
+        <TabsContent value="turnover" className="space-y-4">
+          <WarehouseReportPanel type="turnover" startDate={startDate} endDate={endDate} loading={loading} />
+        </TabsContent>
+
+        {/* 盘点差异 */}
+        <TabsContent value="stocktake_variance" className="space-y-4">
+          <WarehouseReportPanel type="stocktake_variance" startDate={startDate} endDate={endDate} loading={loading} />
+        </TabsContent>
       </Tabs>
     </div>
   )
+}
+
+// ==========================================
+// Warehouse Report Panels (Phase 6)
+// ==========================================
+
+const TYPE_LABELS: Record<string, string> = {
+  purchase_in: "采购入库", sale_out: "销售出库", return_in: "退货入库",
+  cancel_purchase: "取消采购", cancel_sale: "取消销售", adjustment: "手动调整",
+  transfer_in: "调拨入库", transfer_out: "调拨出库",
+}
+
+function WarehouseReportPanel({ type, startDate, endDate, loading: parentLoading }: {
+  type: string; startDate: string; endDate: string; loading: boolean
+}) {
+  const [data, setData] = useState<Record<string, unknown> | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    const noDateTypes = ["warehouse_util", "batch_expiry"]
+    const params = noDateTypes.includes(type)
+      ? `type=${type}`
+      : `type=${type}&start=${startDate}&end=${endDate}`
+    api<Record<string, unknown>>(`/api/reports?${params}`).then((res) => {
+      if (res.success && res.data) setData(res.data)
+      setLoading(false)
+    })
+  }, [type, startDate, endDate])
+
+  if (loading || parentLoading) return <p className="text-center text-muted-foreground py-8">加载中...</p>
+  if (!data) return <p className="text-center text-muted-foreground py-8">暂无数据</p>
+
+  // ==========================================
+  // 出入库汇总
+  // ==========================================
+  if (type === "movements") {
+    const d = data as {
+      totalMovements: number; totalIn: number; totalOut: number
+      byType: Array<{ type: string; count: number; totalQty: number }>
+      byProduct: Array<{ name: string; inQty: number; outQty: number; movements: number }>
+    }
+    return (
+      <>
+        <div className="grid grid-cols-3 gap-2">
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">总流水</p>
+            <p className="text-lg font-bold">{d.totalMovements}</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">总入库</p>
+            <p className="text-lg font-bold text-green-600">+{d.totalIn}</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">总出库</p>
+            <p className="text-lg font-bold text-red-600">-{d.totalOut}</p>
+          </CardContent></Card>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">按类型</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {d.byType.map((t) => (
+                <div key={t.type} className="px-3 py-2 flex justify-between text-sm">
+                  <span>{TYPE_LABELS[t.type] || t.type}</span>
+                  <span className="font-mono">{t.count}次 · {t.totalQty}件</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">按商品</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {d.byProduct.map((p, i) => (
+                <div key={i} className="px-3 py-2 flex justify-between text-sm">
+                  <span className="font-medium">{p.name}</span>
+                  <div className="flex gap-3">
+                    <span className="text-green-600">入{p.inQty}</span>
+                    <span className="text-red-600">出{p.outQty}</span>
+                    <span className="text-muted-foreground">{p.movements}次</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </>
+    )
+  }
+
+  // ==========================================
+  // 库存周转率
+  // ==========================================
+  if (type === "turnover") {
+    const d = data as {
+      totalCOGS: number; avgInventory: number; turnoverRate: number; daysOfInventory: number; daysPeriod: number
+      byProduct: Array<{ name: string; category: string; stock: number; inventoryValue: number; cogs: number; turnoverRate: number }>
+    }
+    return (
+      <>
+        <div className="grid grid-cols-2 gap-2">
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">周转率</p>
+            <p className="text-xl font-bold">{d.turnoverRate}次</p>
+            <p className="text-xs text-muted-foreground">{d.daysPeriod}天内</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">存货天数</p>
+            <p className="text-xl font-bold">{d.daysOfInventory > 999 ? "∞" : d.daysOfInventory}天</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">销售成本</p>
+            <p className="text-lg font-bold">¥{d.totalCOGS.toFixed(0)}</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">平均库存</p>
+            <p className="text-lg font-bold">¥{d.avgInventory.toFixed(0)}</p>
+          </CardContent></Card>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">商品周转排行</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {d.byProduct.slice(0, 20).map((p, i) => (
+                <div key={i} className="px-3 py-2 flex justify-between text-sm">
+                  <div>
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-xs text-muted-foreground ml-1">{p.category}</span>
+                  </div>
+                  <div className="flex gap-3 shrink-0">
+                    <span className="font-mono">{p.turnoverRate}次</span>
+                    <span className="text-muted-foreground">库存{p.stock}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </>
+    )
+  }
+
+  // ==========================================
+  // 盘点差异
+  // ==========================================
+  if (type === "stocktake_variance") {
+    const d = data as {
+      totalStocktakes: number; totalDiffItems: number; totalPositive: number; totalNegative: number
+      items: Array<{ stocktakeNo: string; product: { name: string; unit: string }; systemQty: number; actualQty: number; diffQty: number }>
+    }
+    return (
+      <>
+        <div className="grid grid-cols-2 gap-2">
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">盘点次数</p>
+            <p className="text-lg font-bold">{d.totalStocktakes}</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">差异项数</p>
+            <p className="text-lg font-bold text-orange-600">{d.totalDiffItems}</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">盘盈总量</p>
+            <p className="text-lg font-bold text-green-600">+{d.totalPositive}</p>
+          </CardContent></Card>
+          <Card><CardContent className="p-3 text-center">
+            <p className="text-xs text-muted-foreground">盘亏总量</p>
+            <p className="text-lg font-bold text-red-600">-{d.totalNegative}</p>
+          </CardContent></Card>
+        </div>
+
+        {d.items.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">差异明细</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y">
+                {d.items.map((item, i) => (
+                  <div key={i} className="px-3 py-2 flex justify-between text-sm">
+                    <div>
+                      <span className="font-medium">{item.product.name}</span>
+                      <span className="text-xs text-muted-foreground ml-1">{item.stocktakeNo}</span>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <span className="text-muted-foreground">系统{item.systemQty}</span>
+                      <span>实际{item.actualQty}</span>
+                      <span className={item.diffQty > 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                        {item.diffQty > 0 ? "+" : ""}{item.diffQty}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </>
+    )
+  }
+
+  return <p className="text-center text-muted-foreground py-8">暂无数据</p>
 }

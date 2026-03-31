@@ -267,6 +267,232 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    // ==========================================
+    // 出入库汇总报表
+    // ==========================================
+    if (type === "movements") {
+      const movements = await prisma.stockMovement.findMany({
+        where: {
+          tenantId: auth.tenantId,
+          createdAt: dateFilter,
+        },
+        include: { product: { select: { name: true, unit: true } } },
+      })
+
+      // 按类型汇总
+      const byType: Record<string, { count: number; totalQty: number }> = {}
+      for (const m of movements) {
+        const t = m.type
+        if (!byType[t]) byType[t] = { count: 0, totalQty: 0 }
+        byType[t].count++
+        byType[t].totalQty += Math.abs(m.quantity)
+      }
+
+      // 按商品汇总
+      const byProduct = new Map<string, { name: string; inQty: number; outQty: number; movements: number }>()
+      for (const m of movements) {
+        const existing = byProduct.get(m.productId) ?? { name: m.product.name, inQty: 0, outQty: 0, movements: 0 }
+        if (m.quantity > 0) existing.inQty += m.quantity
+        else existing.outQty += Math.abs(m.quantity)
+        existing.movements++
+        byProduct.set(m.productId, existing)
+      }
+
+      const totalIn = movements.filter((m) => m.quantity > 0).reduce((s, m) => s + m.quantity, 0)
+      const totalOut = movements.filter((m) => m.quantity < 0).reduce((s, m) => s + Math.abs(m.quantity), 0)
+
+      return apiSuccess({
+        totalMovements: movements.length,
+        totalIn,
+        totalOut,
+        byType: Object.entries(byType).map(([type, data]) => ({ type, ...data })),
+        byProduct: Array.from(byProduct.values()).sort((a, b) => b.movements - a.movements).slice(0, 30),
+      })
+    }
+
+    // ==========================================
+    // 仓库利用率
+    // ==========================================
+    if (type === "warehouse_util") {
+      const warehouses = await prisma.warehouse.findMany({
+        where: { tenantId: auth.tenantId, isActive: true },
+        include: { warehouseStocks: true },
+      })
+
+      const totalProducts = await prisma.product.count({
+        where: { tenantId: auth.tenantId, isActive: true },
+      })
+
+      const warehouseData = warehouses.map((w) => {
+        const activeStocks = w.warehouseStocks.filter((s) => s.quantity > 0)
+        const totalQty = activeStocks.reduce((s, st) => s + st.quantity, 0)
+        return {
+          id: w.id,
+          name: w.name,
+          isDefault: w.isDefault,
+          productCount: activeStocks.length,
+          totalQuantity: totalQty,
+          utilizationPct: totalProducts > 0 ? Math.round(activeStocks.length / totalProducts * 100) : 0,
+        }
+      })
+
+      return apiSuccess({
+        totalWarehouses: warehouses.length,
+        totalProducts,
+        warehouses: warehouseData,
+      })
+    }
+
+    // ==========================================
+    // 库存周转率
+    // ==========================================
+    if (type === "turnover") {
+      // COGS (销售成本) = SUM(saleOrderItem.costPrice * quantity)
+      const saleItems = await prisma.saleOrderItem.findMany({
+        where: {
+          saleOrder: { tenantId: auth.tenantId, status: "completed", orderDate: dateFilter },
+        },
+        select: { costPrice: true, quantity: true, productId: true },
+      })
+
+      const totalCOGS = saleItems.reduce((s, i) => s + Number(i.costPrice) * i.quantity, 0)
+
+      // 当前库存金额（作为平均库存近似值）
+      const products = await prisma.product.findMany({
+        where: { tenantId: auth.tenantId, isActive: true },
+        select: { id: true, name: true, stock: true, costPrice: true, category: { select: { name: true } } },
+      })
+
+      const avgInventory = products.reduce((s, p) => s + p.stock * Number(p.costPrice), 0)
+      const turnoverRate = avgInventory > 0 ? totalCOGS / avgInventory : 0
+
+      // 按商品的周转率
+      const cogsMap = new Map<string, number>()
+      for (const item of saleItems) {
+        cogsMap.set(item.productId, (cogsMap.get(item.productId) ?? 0) + Number(item.costPrice) * item.quantity)
+      }
+
+      const productTurnover = products
+        .map((p) => {
+          const cogs = cogsMap.get(p.id) ?? 0
+          const inv = p.stock * Number(p.costPrice)
+          return {
+            name: p.name,
+            category: p.category?.name ?? "未分类",
+            stock: p.stock,
+            inventoryValue: inv,
+            cogs,
+            turnoverRate: inv > 0 ? Math.round(cogs / inv * 100) / 100 : 0,
+          }
+        })
+        .sort((a, b) => b.turnoverRate - a.turnoverRate)
+
+      // 计算天数范围
+      const daysDiff = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000))
+      const daysOfInventory = turnoverRate > 0 ? Math.round(daysDiff / turnoverRate) : 999
+
+      return apiSuccess({
+        totalCOGS,
+        avgInventory,
+        turnoverRate: Math.round(turnoverRate * 100) / 100,
+        daysOfInventory,
+        daysPeriod: daysDiff,
+        byProduct: productTurnover.slice(0, 30),
+      })
+    }
+
+    // ==========================================
+    // 盘点差异报告
+    // ==========================================
+    if (type === "stocktake_variance") {
+      const stocktakes = await prisma.stocktakeOrder.findMany({
+        where: {
+          tenantId: auth.tenantId,
+          status: "completed",
+          completedAt: dateFilter,
+        },
+        include: { items: true },
+        orderBy: { completedAt: "desc" },
+      })
+
+      // 获取商品信息
+      const productIds = [...new Set(stocktakes.flatMap((s) => s.items.map((i) => i.productId)))]
+      const products = await prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, name: true, unit: true },
+      })
+      const prodMap = Object.fromEntries(products.map((p) => [p.id, p]))
+
+      const allDiffItems = stocktakes.flatMap((s) =>
+        s.items
+          .filter((i) => i.diffQty !== null && i.diffQty !== 0)
+          .map((i) => ({
+            stocktakeNo: s.stocktakeNo,
+            completedAt: s.completedAt,
+            product: prodMap[i.productId] || { name: "未知", unit: "" },
+            systemQty: i.systemQty,
+            actualQty: i.actualQty!,
+            diffQty: i.diffQty!,
+          }))
+      )
+
+      const totalDiffItems = allDiffItems.length
+      const totalPositive = allDiffItems.filter((i) => i.diffQty > 0).reduce((s, i) => s + i.diffQty, 0)
+      const totalNegative = allDiffItems.filter((i) => i.diffQty < 0).reduce((s, i) => s + Math.abs(i.diffQty), 0)
+
+      return apiSuccess({
+        totalStocktakes: stocktakes.length,
+        totalDiffItems,
+        totalPositive,
+        totalNegative,
+        items: allDiffItems.slice(0, 50),
+      })
+    }
+
+    // ==========================================
+    // 批次效期报告
+    // ==========================================
+    if (type === "batch_expiry") {
+      const batches = await prisma.batch.findMany({
+        where: {
+          tenantId: auth.tenantId,
+          quantity: { gt: 0 },
+          expiryDate: { not: null },
+        },
+        include: { product: { select: { id: true, name: true, unit: true, costPrice: true } } },
+        orderBy: { expiryDate: "asc" },
+      })
+
+      const now = Date.now()
+      const groups = { expired: [] as typeof enriched, within7: [] as typeof enriched, within30: [] as typeof enriched, safe: [] as typeof enriched }
+
+      const enriched = batches.map((b) => {
+        const daysLeft = b.expiryDate ? Math.ceil((b.expiryDate.getTime() - now) / 86400000) : 999
+        return {
+          ...b,
+          daysLeft,
+          value: b.quantity * Number(b.product.costPrice),
+        }
+      })
+
+      for (const b of enriched) {
+        if (b.daysLeft < 0) groups.expired.push(b)
+        else if (b.daysLeft <= 7) groups.within7.push(b)
+        else if (b.daysLeft <= 30) groups.within30.push(b)
+        else groups.safe.push(b)
+      }
+
+      return apiSuccess({
+        summary: {
+          expired: { count: groups.expired.length, value: groups.expired.reduce((s, b) => s + b.value, 0) },
+          within7: { count: groups.within7.length, value: groups.within7.reduce((s, b) => s + b.value, 0) },
+          within30: { count: groups.within30.length, value: groups.within30.reduce((s, b) => s + b.value, 0) },
+          safe: { count: groups.safe.length, value: groups.safe.reduce((s, b) => s + b.value, 0) },
+        },
+        items: enriched.slice(0, 50),
+      })
+    }
+
     return apiError("未知报表类型")
   } catch (error) {
     console.error("获取报表失败:", error)
