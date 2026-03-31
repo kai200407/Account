@@ -20,6 +20,7 @@ import {
   ArrowRightLeft,
   ClipboardCheck,
   Layers,
+  BarChart3,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -35,6 +36,7 @@ const navItems = [
   { href: "/transfers", label: "调拨", icon: ArrowRightLeft },
   { href: "/stocktakes", label: "盘点", icon: ClipboardCheck },
   { href: "/batches", label: "批次", icon: Layers },
+  { href: "/analytics", label: "分析", icon: BarChart3 },
   { href: "/customers", label: "客户", icon: Users },
   { href: "/suppliers", label: "供应商", icon: Building2 },
   { href: "/payments", label: "收付款", icon: Wallet },
