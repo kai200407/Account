@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const tid = auth.tenantId
 
     // 并行查询
-    const [todaySales, todayPurchases, lowStockProducts, recentSales, totalReceivable, totalPayable, popularProductIds] = await Promise.all([
+    const [todaySales, todayPurchases, lowStockProducts, lowStockCountResult, recentSales, totalReceivable, totalPayable, popularProductIds, stockValueResult, expiringBatches] = await Promise.all([
       // 今日销售
       prisma.saleOrder.findMany({
         where: { tenantId: tid, status: "completed", orderDate: todayFilter },
@@ -27,17 +27,28 @@ export async function GET(request: NextRequest) {
         where: { tenantId: tid, status: "completed", orderDate: todayFilter },
         select: { totalAmount: true },
       }),
-      // 低库存商品
+      // 低库存商品 Top5（按缺口从大到小）
       prisma.$queryRawUnsafe<Array<{ id: string; name: string; stock: number; unit: string; low_stock_alert: number }>>(
         `SELECT id, name, stock, unit, low_stock_alert
         FROM products
-        WHERE tenant_id = ? AND is_active = 1 AND stock <= low_stock_alert`,
+        WHERE tenant_id = ? AND is_active = 1 AND stock < low_stock_alert
+        ORDER BY (low_stock_alert - stock) DESC
+        LIMIT 5`,
+        tid
+      ),
+      // 低库存商品总数
+      prisma.$queryRawUnsafe<Array<{ cnt: bigint }>>(
+        `SELECT COUNT(*) as cnt FROM products WHERE tenant_id = ? AND is_active = 1 AND stock < low_stock_alert`,
         tid
       ),
       // 最近5笔销售
       prisma.saleOrder.findMany({
         where: { tenantId: tid, status: "completed" },
-        include: { customer: true },
+        select: {
+          id: true, orderNo: true, totalAmount: true, profit: true,
+          saleType: true, orderDate: true,
+          customer: { select: { name: true } },
+        },
         orderBy: { orderDate: "desc" },
         take: 5,
       }),
@@ -64,6 +75,22 @@ export async function GET(request: NextRequest) {
         },
         orderBy: { _sum: { quantity: "desc" } },
         take: 8,
+      }),
+      // 库存总金额
+      prisma.product.aggregate({
+        where: { tenantId: tid, isActive: true },
+        _sum: { stockValue: true },
+      }),
+      // 近30天过期批次数
+      prisma.batch.count({
+        where: {
+          tenantId: tid,
+          expiryDate: {
+            gte: now,
+            lte: new Date(Date.now() + 30 * 86400000),
+          },
+          remainingQty: { gt: 0 },
+        },
       }),
     ])
 
@@ -96,8 +123,15 @@ export async function GET(request: NextRequest) {
       todayProfit,
       todayOrders: todaySales.length,
       todayPurchaseTotal,
-      lowStockCount: lowStockProducts.length,
-      lowStockProducts: lowStockProducts.slice(0, 5),
+      lowStockCount: Number(lowStockCountResult[0]?.cnt ?? 0),
+      lowStockProducts: lowStockProducts.map((p) => ({
+        name: p.name,
+        stock: p.stock,
+        unit: p.unit,
+        lowStockAlert: p.low_stock_alert,
+      })),
+      totalStockValue: Number(stockValueResult._sum.stockValue ?? 0),
+      expiringBatchCount: expiringBatches,
       totalReceivable: Number(totalReceivable._sum.balance ?? 0),
       totalPayable: Number(totalPayable._sum.balance ?? 0),
       popularProducts,

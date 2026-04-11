@@ -13,6 +13,8 @@ import {
   Wallet,
   AlertTriangle,
   Zap,
+  Clock,
+  TrendingUp,
 } from "lucide-react"
 import Link from "next/link"
 import Image from "next/image"
@@ -24,13 +26,22 @@ interface PopularProduct {
   imageUrl: string | null
 }
 
+interface LowStockProduct {
+  name: string
+  stock: number
+  unit: string
+  lowStockAlert: number
+}
+
 interface DashboardData {
   todayRevenue: number
   todayProfit: number
   todayOrders: number
   todayPurchaseTotal: number
   lowStockCount: number
-  lowStockProducts: Array<{ name: string; stock: number; unit: string }>
+  lowStockProducts: LowStockProduct[]
+  totalStockValue: number
+  expiringBatchCount: number
   totalReceivable: number
   totalPayable: number
   popularProducts: PopularProduct[]
@@ -136,6 +147,43 @@ export default function DashboardPage() {
         </Card>
       )}
 
+      {/* 库存统计卡片 */}
+      <div className="grid grid-cols-3 gap-3">
+        <Link href={data && data.lowStockCount > 0 ? "/inventory/low-stock" : "#"}>
+          <Card className={`cursor-pointer hover:shadow-md transition-shadow ${(data?.lowStockCount ?? 0) > 0 ? "border-red-300 bg-red-50/50" : ""}`}>
+            <CardContent className="p-3 text-center">
+              <div className="flex items-center justify-center gap-1 mb-1">
+                <AlertTriangle className={`h-4 w-4 ${(data?.lowStockCount ?? 0) > 0 ? "text-red-500" : "text-muted-foreground"}`} />
+                <p className="text-xs text-muted-foreground">库存预警</p>
+              </div>
+              <p className={`text-xl font-bold ${(data?.lowStockCount ?? 0) > 0 ? "text-red-600" : ""}`}>
+                {data?.lowStockCount ?? 0}
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+        <Card>
+          <CardContent className="p-3 text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">库存总金额</p>
+            </div>
+            <p className="text-lg font-bold">¥{(data?.totalStockValue ?? 0).toFixed(0)}</p>
+          </CardContent>
+        </Card>
+        <Card className={(data?.expiringBatchCount ?? 0) > 0 ? "border-orange-300 bg-orange-50/50" : ""}>
+          <CardContent className="p-3 text-center">
+            <div className="flex items-center justify-center gap-1 mb-1">
+              <Clock className={`h-4 w-4 ${(data?.expiringBatchCount ?? 0) > 0 ? "text-orange-500" : "text-muted-foreground"}`} />
+              <p className="text-xs text-muted-foreground">近期过期</p>
+            </div>
+            <p className={`text-xl font-bold ${(data?.expiringBatchCount ?? 0) > 0 ? "text-orange-600" : ""}`}>
+              {data?.expiringBatchCount ?? 0}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* 今日摘要 — 精简为一行 */}
       <Card>
         <CardContent className="p-3">
@@ -192,15 +240,18 @@ export default function DashboardPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-red-500" />
-              库存预警
+              低库存商品 Top5
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">
               {data.lowStockProducts.map((p, i) => (
-                <div key={i} className="px-3 py-2 flex justify-between text-sm">
-                  <span>{p.name}</span>
-                  <span className="text-red-500 font-medium">{p.stock}{p.unit}</span>
+                <div key={i} className="px-3 py-2 flex items-center justify-between text-sm">
+                  <span className="font-medium">{p.name}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-red-500 font-medium">{p.stock}{p.unit}</span>
+                    <span className="text-xs text-muted-foreground">/ 预警 {p.lowStockAlert}{p.unit}</span>
+                  </div>
                 </div>
               ))}
             </div>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { requireOwner, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { createStockMovement } from "@/lib/stock"
+import { calculateAdjustmentCost } from "@/lib/cost-calculation"
 import { logAudit } from "@/lib/audit"
 
 // 手动库存调整 — 仅 owner
@@ -28,6 +29,19 @@ export async function POST(request: NextRequest) {
     if (isNaN(adjustQty) || adjustQty === 0) return apiError("调整数量无效")
 
     const movement = await prisma.$transaction(async (tx) => {
+      // 读取当前成本信息
+      const currentProduct = await tx.product.findUnique({
+        where: { id: productId },
+        select: { costPrice: true },
+      })
+      if (!currentProduct) throw new Error("商品不存在")
+
+      const costPrice = Number(currentProduct.costPrice ?? 0)
+
+      // 计算调整的成本变动
+      const { stockValueChange } = calculateAdjustmentCost(costPrice, adjustQty)
+
+      // stock 和 stockValue 在 createStockMovement 中原子更新
       return createStockMovement(tx, {
         tenantId: auth.tenantId,
         productId,
@@ -37,6 +51,8 @@ export async function POST(request: NextRequest) {
         notes: notes.trim(),
         operatorId: auth.userId,
         operatorName: auth.userName || "未知用户",
+        costPrice,
+        stockValueDelta: stockValueChange,
       })
     })
 

@@ -4,6 +4,8 @@ import { requireAuth, isAuthError } from "@/lib/api-auth"
 import { apiSuccess, apiError } from "@/lib/api-response"
 import { logAudit } from "@/lib/audit"
 import { getPaginationParams } from "@/lib/pagination"
+import { paymentSchema } from "@/lib/validations"
+import { validateBody } from "@/lib/validate"
 
 // 获取收付款记录 + 应收应付汇总
 export async function GET(request: NextRequest) {
@@ -73,16 +75,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { type, customerId, supplierId, amount, method, notes } = body
-
-    if (!type || !["receivable", "payable"].includes(type)) {
-      return apiError("请指定收款或付款类型")
+    const validation = validateBody(paymentSchema, body)
+    if (!validation.success) {
+      return apiError(validation.error, 400)
     }
-
-    const payAmount = parseFloat(amount)
-    if (!payAmount || payAmount <= 0) {
-      return apiError("金额必须大于0")
-    }
+    const { type, customerId, supplierId, amount, method, notes } = validation.data
 
     if (type === "receivable") {
       // 收款：客户还我的钱
@@ -93,7 +90,7 @@ export async function POST(request: NextRequest) {
       })
       if (!customer) return apiError("客户不存在")
       if (Number(customer.balance) <= 0) return apiError("该客户没有欠款")
-      if (payAmount > Number(customer.balance)) {
+      if (amount > Number(customer.balance)) {
         return apiError(`收款金额不能超过欠款 ¥${Number(customer.balance).toFixed(2)}`)
       }
 
@@ -103,9 +100,9 @@ export async function POST(request: NextRequest) {
             id: customerId,
             tenantId: auth.tenantId,
             isActive: true,
-            balance: { gte: payAmount },
+            balance: { gte: amount },
           },
-          data: { balance: { decrement: payAmount } },
+          data: { balance: { decrement: amount } },
         })
         if (updated.count !== 1) {
           throw new Error("收款金额不能超过欠款")
@@ -116,7 +113,7 @@ export async function POST(request: NextRequest) {
             tenantId: auth.tenantId,
             type: "receivable",
             customerId,
-            amount: payAmount,
+            amount,
             method: method || "cash",
             notes: notes?.trim() || null,
           },
@@ -126,7 +123,7 @@ export async function POST(request: NextRequest) {
         return record
       })
 
-      await logAudit(auth, "create", "payment", payment.id, `收款 ¥${payAmount.toFixed(2)}，客户「${payment.customer?.name}」`)
+      await logAudit(auth, "create", "payment", payment.id, `收款 ¥${amount.toFixed(2)}，客户「${payment.customer?.name}」`)
 
       return apiSuccess(payment, 201)
     } else {
@@ -138,7 +135,7 @@ export async function POST(request: NextRequest) {
       })
       if (!supplier) return apiError("供应商不存在")
       if (Number(supplier.balance) <= 0) return apiError("不欠该供应商款项")
-      if (payAmount > Number(supplier.balance)) {
+      if (amount > Number(supplier.balance)) {
         return apiError(`付款金额不能超过欠款 ¥${Number(supplier.balance).toFixed(2)}`)
       }
 
@@ -148,9 +145,9 @@ export async function POST(request: NextRequest) {
             id: supplierId,
             tenantId: auth.tenantId,
             isActive: true,
-            balance: { gte: payAmount },
+            balance: { gte: amount },
           },
-          data: { balance: { decrement: payAmount } },
+          data: { balance: { decrement: amount } },
         })
         if (updated.count !== 1) {
           throw new Error("付款金额不能超过欠款")
@@ -161,7 +158,7 @@ export async function POST(request: NextRequest) {
             tenantId: auth.tenantId,
             type: "payable",
             supplierId,
-            amount: payAmount,
+            amount,
             method: method || "cash",
             notes: notes?.trim() || null,
           },
@@ -171,7 +168,7 @@ export async function POST(request: NextRequest) {
         return record
       })
 
-      await logAudit(auth, "create", "payment", payment.id, `付款 ¥${payAmount.toFixed(2)}，供应商「${payment.supplier?.name}」`)
+      await logAudit(auth, "create", "payment", payment.id, `付款 ¥${amount.toFixed(2)}，供应商「${payment.supplier?.name}」`)
 
       return apiSuccess(payment, 201)
     }

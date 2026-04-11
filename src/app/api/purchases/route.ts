@@ -5,7 +5,10 @@ import { apiSuccess, apiError } from "@/lib/api-response"
 import { generateOrderNo } from "@/lib/order-utils"
 import { logAudit } from "@/lib/audit"
 import { createStockMovement } from "@/lib/stock"
+import { calculateWeightedAverageCost } from "@/lib/cost-calculation"
 import { getPaginationParams } from "@/lib/pagination"
+import { purchaseOrderSchema } from "@/lib/validations"
+import { validateBody } from "@/lib/validate"
 
 // 获取进货单列表
 export async function GET(request: NextRequest) {
@@ -26,9 +29,11 @@ export async function GET(request: NextRequest) {
     const [orders, total] = await Promise.all([
       prisma.purchaseOrder.findMany({
         where,
-        include: {
-          supplier: true,
-          items: { include: { product: true } },
+        select: {
+          id: true, orderNo: true, totalAmount: true, paidAmount: true,
+          status: true, orderDate: true,
+          supplier: { select: { id: true, name: true } },
+          _count: { select: { items: true } },
         },
         orderBy: { orderDate: "desc" },
         skip,
@@ -56,12 +61,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { supplierId, items, paidAmount, notes, orderDate, warehouseId } = body
-    const purchaseItems: Array<{ productId?: string; quantity?: number; unitPrice?: number }> =
-      Array.isArray(items) ? items : []
-
-    if (!supplierId) return apiError("请选择供应商")
-    if (purchaseItems.length === 0) return apiError("请添加进货商品")
+    const validation = validateBody(purchaseOrderSchema, body)
+    if (!validation.success) {
+      return apiError(validation.error, 400)
+    }
+    const { supplierId, items, paidAmount, notes, warehouseId } = validation.data
+    const orderDate = body.orderDate
+    const purchaseItems = items
 
     // 验证供应商属于当前租户
     const supplier = await prisma.supplier.findFirst({
@@ -91,7 +97,11 @@ export async function POST(request: NextRequest) {
         isActive: true,
         id: { in: productIds },
       },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        enableBatchTracking: true,
+      },
     })
     const productMap = new Map(products.map((p) => [p.id, p]))
 
@@ -112,7 +122,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const paid = parseFloat(paidAmount) || 0
+    const paid = paidAmount ?? 0
     const unpaid = totalAmount - paid
 
     const result = await prisma.$transaction(async (tx) => {
@@ -137,8 +147,35 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // 2. 增加库存（通过库存流水）
+      // 2. 增加库存 + 成本核算
       for (const item of orderItems) {
+        // 事务内读取最新数据（避免使用事务外缓存）
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { stock: true, costPrice: true, stockValue: true, enableBatchTracking: true },
+        })
+        if (!product) throw new Error("商品不存在")
+
+        // 2a. 计算加权平均成本
+        const costResult = calculateWeightedAverageCost({
+          currentStock: product.stock,
+          currentCostPrice: Number(product.costPrice),
+          currentStockValue: Number(product.stockValue),
+          incomingQty: item.quantity,
+          incomingPrice: item.unitPrice,
+        })
+
+        // 2b. 更新商品成本价和最近进价（stockValue 由 createStockMovement 原子更新）
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            costPrice: costResult.newCostPrice,
+            lastCostPrice: item.unitPrice,
+          },
+        })
+
+        // 2c. 创建库存流水，stock 和 stockValue 同一事务原子更新
+        const incomingAmount = item.quantity * item.unitPrice
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
           productId: item.productId,
@@ -150,7 +187,24 @@ export async function POST(request: NextRequest) {
           refNo: order.orderNo,
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
+          costPrice: costResult.newCostPrice,
+          stockValueDelta: incomingAmount,
         })
+
+        // 2d. 批次追踪：创建批次记录
+        if (product.enableBatchTracking) {
+          await tx.batch.create({
+            data: {
+              tenantId: auth.tenantId,
+              productId: item.productId,
+              batchNo: order.orderNo,
+              quantity: item.quantity,
+              costPrice: item.unitPrice,
+              remainingQty: item.quantity,
+              purchaseOrderId: order.id,
+            },
+          })
+        }
       }
 
       // 3. 更新供应商应付余额（欠供应商的钱增加）

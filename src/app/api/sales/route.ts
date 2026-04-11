@@ -5,7 +5,10 @@ import { apiSuccess, apiError } from "@/lib/api-response"
 import { generateOrderNo } from "@/lib/order-utils"
 import { logAudit } from "@/lib/audit"
 import { createStockMovement } from "@/lib/stock"
+import { calculateSaleCost } from "@/lib/cost-calculation"
 import { getPaginationParams } from "@/lib/pagination"
+import { saleOrderSchema } from "@/lib/validations"
+import { validateBody } from "@/lib/validate"
 
 // 获取销售单列表
 export async function GET(request: NextRequest) {
@@ -28,9 +31,11 @@ export async function GET(request: NextRequest) {
     const [orders, total] = await Promise.all([
       prisma.saleOrder.findMany({
         where,
-        include: {
-          customer: true,
-          items: { include: { product: true } },
+        select: {
+          id: true, orderNo: true, totalAmount: true, paidAmount: true,
+          profit: true, status: true, orderDate: true, saleType: true,
+          customer: { select: { id: true, name: true } },
+          _count: { select: { items: true } },
         },
         orderBy: { orderDate: "desc" },
         skip,
@@ -58,9 +63,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { customerId, saleType, items, paidAmount, notes, orderDate, warehouseId } = body
-
-    if (!items || items.length === 0) return apiError("请添加销售商品")
+    const validation = validateBody(saleOrderSchema, body)
+    if (!validation.success) {
+      return apiError(validation.error, 400)
+    }
+    const { customerId, saleType, items, paidAmount, notes, warehouseId } = validation.data
+    const orderDate = body.orderDate
 
     // 如果指定了客户，验证归属
     if (customerId) {
@@ -70,18 +78,8 @@ export async function POST(request: NextRequest) {
       if (!customer) return apiError("客户不存在")
     }
 
-    // 构建订单项，检查库存，计算利润
+    // 预检：验证商品存在且库存充足
     let totalAmount = 0
-    let totalProfit = 0
-    const orderItems: Array<{
-      productId: string
-      quantity: number
-      unitPrice: number
-      costPrice: number
-      subtotal: number
-      profit: number
-    }> = []
-
     for (const item of items) {
       if (!item.productId || !item.quantity || item.quantity <= 0) {
         return apiError("商品信息不完整")
@@ -89,35 +87,56 @@ export async function POST(request: NextRequest) {
 
       const product = await prisma.product.findFirst({
         where: { id: item.productId, tenantId: auth.tenantId },
+        select: { id: true, stock: true, name: true, unit: true },
       })
-      if (!product) return apiError(`商品不存在`)
+      if (!product) return apiError("商品不存在")
       if (product.stock < item.quantity) {
         return apiError(`「${product.name}」库存不足，当前库存 ${product.stock}${product.unit}`)
       }
 
-      const unitPrice = item.unitPrice ?? 0
-      const costPrice = Number(product.costPrice)
-      const subtotal = item.quantity * unitPrice
-      const profit = item.quantity * (unitPrice - costPrice)
-
-      totalAmount += subtotal
-      totalProfit += profit
-
-      orderItems.push({
-        productId: item.productId,
-        quantity: item.quantity,
-        unitPrice,
-        costPrice,
-        subtotal,
-        profit,
-      })
+      totalAmount += item.quantity * (item.unitPrice ?? 0)
     }
 
-    const paid = parseFloat(paidAmount) || 0
+    const paid = paidAmount ?? 0
     const unpaid = totalAmount - paid
     const type = saleType || "retail"
 
     const result = await prisma.$transaction(async (tx) => {
+      // 事务内：读取最新成本数据，计算利润，构建订单项
+      let totalProfit = 0
+      const orderItems: Array<{
+        productId: string
+        quantity: number
+        unitPrice: number
+        costPrice: number
+        subtotal: number
+        profit: number
+      }> = []
+
+      for (const item of items) {
+        const product = await tx.product.findFirst({
+          where: { id: item.productId, tenantId: auth.tenantId },
+          select: { id: true, costPrice: true },
+        })
+        if (!product) throw new Error("商品不存在")
+
+        const unitPrice = item.unitPrice ?? 0
+        const costPrice = Number(product.costPrice)
+        const subtotal = item.quantity * unitPrice
+        const profit = (unitPrice - costPrice) * item.quantity
+
+        totalProfit += profit
+
+        orderItems.push({
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice,
+          costPrice,
+          subtotal,
+          profit,
+        })
+      }
+
       // 1. 创建销售单
       const order = await tx.saleOrder.create({
         data: {
@@ -142,8 +161,21 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      // 2. 扣减库存（通过库存流水）
+      // 2. 扣减库存 + 成本核算（stock 和 stockValue 在 createStockMovement 中原子更新）
       for (const item of orderItems) {
+        // 读取最新成本价
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { costPrice: true },
+        })
+        if (!product) throw new Error("商品不存在")
+
+        const currentCostPrice = Number(product.costPrice)
+
+        // 计算销售成本（库存金额减少量）
+        const { stockValueReduction } = calculateSaleCost(currentCostPrice, item.quantity)
+
+        // 扣减库存（通过库存流水），stock 和 stockValue 同一事务原子更新
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
           productId: item.productId,
@@ -155,6 +187,8 @@ export async function POST(request: NextRequest) {
           refNo: order.orderNo,
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
+          costPrice: currentCostPrice,
+          stockValueDelta: -stockValueReduction,
         })
       }
 

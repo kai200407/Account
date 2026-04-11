@@ -66,7 +66,12 @@ export async function GET(request: NextRequest) {
       if (popularIds.length > 0) {
         const products = await prisma.product.findMany({
           where: { ...where, id: { in: popularIds } },
-          include: { category: true },
+          select: {
+            id: true, name: true, sku: true, unit: true, costPrice: true,
+            retailPrice: true, stock: true, lowStockAlert: true, isActive: true,
+            categoryId: true, imageUrl: true,
+            category: { select: { id: true, name: true } },
+          },
         })
 
         // 保持销量排序
@@ -86,7 +91,12 @@ export async function GET(request: NextRequest) {
     const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
-        include: { category: true },
+        select: {
+          id: true, name: true, sku: true, unit: true, costPrice: true,
+          retailPrice: true, stock: true, lowStockAlert: true, isActive: true,
+          categoryId: true, imageUrl: true,
+          category: { select: { id: true, name: true } },
+        },
         orderBy,
         skip,
         take: limit,

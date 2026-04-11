@@ -7,14 +7,15 @@
 type TxClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0]
 
 export type StockMovementType =
-  | "purchase_in"      // 采购入库
-  | "sale_out"         // 销售出库
-  | "return_in"        // 退货入库
-  | "cancel_purchase"  // 取消采购（回滚出库）
-  | "cancel_sale"      // 取消销售（回滚入库）
-  | "adjustment"       // 手动调整
-  | "transfer_in"      // 调拨入库
-  | "transfer_out"     // 调拨出库
+  | "purchase_in"           // 采购入库
+  | "sale_out"              // 销售出库
+  | "return_in"             // 退货入库
+  | "cancel_purchase"       // 取消采购（回滚出库）
+  | "cancel_sale"           // 取消销售（回滚入库）
+  | "adjustment"            // 手动调整
+  | "stocktake_adjustment"  // 盘点调整
+  | "transfer_in"           // 调拨入库
+  | "transfer_out"          // 调拨出库
 
 export type StockRefType =
   | "purchase_order"
@@ -36,6 +37,12 @@ export interface CreateStockMovementParams {
   notes?: string
   operatorId: string
   operatorName: string
+  /** 本次变动时的单位成本 */
+  costPrice?: number
+  /** 变动后库存总金额 */
+  stockValueAfter?: number
+  /** 库存金额变动量（正数增加，负数减少），与 quantity 在同一 updateMany 中原子更新 */
+  stockValueDelta?: number
 }
 
 /**
@@ -47,9 +54,10 @@ export interface CreateStockMovementParams {
  *   })
  *
  * 保证:
- * 1. Product.stock 按 quantity 增减
- * 2. StockMovement.balanceAfter 等于变动后的 Product.stock
- * 3. 二者在同一事务中完成，保持一致性
+ * 1. Product.stock 按 quantity 增减（原子 increment）
+ * 2. Product.stockValue 按 stockValueDelta 增减（与 stock 在同一 updateMany 中原子完成）
+ * 3. 出库时库存不足校验（通过 updateMany where 条件，在事务内原子判断）
+ * 4. StockMovement.balanceAfter 等于变动后的 Product.stock
  */
 export async function createStockMovement(
   tx: TxClient,
@@ -67,6 +75,9 @@ export async function createStockMovement(
     notes,
     operatorId,
     operatorName,
+    costPrice,
+    stockValueAfter,
+    stockValueDelta,
   } = params
 
   if (quantity === 0) {
@@ -82,15 +93,21 @@ export async function createStockMovement(
     throw new Error("商品不存在或无权限")
   }
 
+  // 原子更新 stock + stockValue（二者在同一个 updateMany 中完成，避免并发不一致）
+  const updateData: Record<string, unknown> = {
+    stock: { increment: quantity },
+  }
+  if (stockValueDelta !== undefined) {
+    updateData.stockValue = { increment: stockValueDelta }
+  }
+
   const updated = await tx.product.updateMany({
     where: {
       id: productId,
       tenantId,
       ...(quantity < 0 ? { stock: { gte: Math.abs(quantity) } } : {}),
     },
-    data: {
-      stock: { increment: quantity },
-    },
+    data: updateData,
   })
   if (updated.count !== 1) {
     if (quantity < 0) {
@@ -101,13 +118,13 @@ export async function createStockMovement(
 
   const updatedProduct = await tx.product.findUnique({
     where: { id: productId },
-    select: { stock: true },
+    select: { stock: true, stockValue: true },
   })
   if (!updatedProduct) {
     throw new Error("库存更新失败：商品不存在")
   }
 
-  // 创建流水记录
+  // 创建流水记录（stockValueAfter 优先用传入值，否则从更新后的 product 读取）
   const movement = await tx.stockMovement.create({
     data: {
       tenantId,
@@ -116,6 +133,8 @@ export async function createStockMovement(
       type,
       quantity,
       balanceAfter: updatedProduct.stock,
+      costPrice: costPrice ?? null,
+      stockValueAfter: stockValueAfter ?? Number(updatedProduct.stockValue) ?? null,
       refType: refType ?? null,
       refId: refId ?? null,
       refNo: refNo ?? null,

@@ -37,6 +37,20 @@ interface RegisterData {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
+/** 检查当前路径是否已在登录页，避免重复跳转 */
+function isOnLoginPage(): boolean {
+  if (typeof window === "undefined") return false
+  return window.location.pathname === "/login"
+}
+
+/** 跳转到登录页（带来源页参数） */
+function redirectToLogin() {
+  if (isOnLoginPage()) return
+  const from = window.location.pathname
+  const search = from && from !== "/" ? `?from=${encodeURIComponent(from)}` : ""
+  window.location.href = `/login${search}`
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -59,13 +73,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(result.data)
       syncRole(result.data)
     } else {
+      // /me 接口失败（token 无效或过期），清除凭证
       removeToken()
+      setUser(null)
+      // 如果不在登录页，跳转
+      if (!isOnLoginPage()) {
+        redirectToLogin()
+      }
     }
     setLoading(false)
   }, [])
 
   useEffect(() => {
-    void Promise.resolve().then(() => fetchUser())
+    void fetchUser()
   }, [fetchUser])
 
   const login = useCallback(

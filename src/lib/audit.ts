@@ -42,3 +42,28 @@ export async function logAudit(
     console.error("审计日志写入失败:", error)
   }
 }
+
+/**
+ * 记录无用户上下文的审计日志（如登录失败）
+ */
+export async function logAnonymousAudit(
+  action: string,
+  entity: string,
+  summary: string
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        tenantId: null,
+        userId: null,
+        userName: "",
+        action,
+        entity,
+        entityId: null,
+        summary,
+      },
+    })
+  } catch (error) {
+    console.error("审计日志写入失败:", error)
+  }
+}

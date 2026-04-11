@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { api } from "@/lib/api-client"
+import { saveDraft, loadDraft, clearDraft } from "@/lib/draft-storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -73,11 +74,45 @@ export function OrderForm({ type }: OrderFormProps) {
   // 购物车展开状态
   const [cartExpanded, setCartExpanded] = useState(false)
 
+  // 草稿自动保存
+  const DRAFT_KEY = isPurchase ? "draft_purchase_new" : "draft_sale_new"
+  const draftRestored = useRef(false)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // 已添加商品的数量映射（用于网格 badge）
   const selectedQuantities: Record<string, number> = {}
   items.forEach((item) => {
     selectedQuantities[item.productId] = item.quantity
   })
+
+  // 恢复草稿
+  useEffect(() => {
+    const draft = loadDraft(DRAFT_KEY)
+    if (draft && !draftRestored.current) {
+      draftRestored.current = true
+      if (draft.contactId) setContactId(draft.contactId)
+      if (draft.warehouseId) setWarehouseId(draft.warehouseId)
+      if (draft.items?.length) setItems(draft.items)
+      if (draft.paidAmount) setPaidAmount(draft.paidAmount)
+      if (draft.notes) setNotes(draft.notes)
+      if (draft.saleType) setSaleType(draft.saleType)
+      toast.info("已恢复上次未提交的开单数据")
+    } else {
+      draftRestored.current = true
+    }
+  }, [DRAFT_KEY])
+
+  // 自动保存草稿（防抖 500ms）
+  useEffect(() => {
+    if (!draftRestored.current) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      if (contactId || warehouseId || items.length > 0 || paidAmount || notes) {
+        saveDraft(DRAFT_KEY, { contactId, warehouseId, items, paidAmount, notes, saleType })
+      }
+    }, 500)
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
+  }, [DRAFT_KEY, contactId, warehouseId, items, paidAmount, notes, saleType])
 
   useEffect(() => {
     // 加载所有商品
@@ -227,6 +262,7 @@ export function OrderForm({ type }: OrderFormProps) {
       })
 
       if (res.success) {
+        clearDraft(DRAFT_KEY)
         toast.success(`${isPurchase ? "进货" : "销售"}单创建成功`)
         router.push(isPurchase ? "/purchases" : "/sales")
       } else {
