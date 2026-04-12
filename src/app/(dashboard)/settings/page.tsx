@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
-import { Users, ClipboardList, Store, SlidersHorizontal } from "lucide-react"
+import { Users, ClipboardList, Store } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 
 const settingItems = [
@@ -26,13 +26,6 @@ const settingItems = [
     title: "店铺信息",
     description: "修改店铺名称",
     ownerOnly: true,
-  },
-  {
-    href: "/settings/preferences",
-    icon: SlidersHorizontal,
-    title: "系统偏好",
-    description: "界面与功能偏好设置",
-    ownerOnly: false,
   },
 ]
 

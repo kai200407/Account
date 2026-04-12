@@ -28,8 +28,9 @@ export default function SuppliersPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const params = search ? `?search=${search}` : ""
-    const res = await api<Supplier[]>(`/api/suppliers${params}`)
+    const params = new URLSearchParams()
+    if (search) params.set("search", search)
+    const res = await api<Supplier[]>(`/api/suppliers?${params}`)
     if (res.success && res.data) setSuppliers(res.data)
     setLoading(false)
   }, [search])

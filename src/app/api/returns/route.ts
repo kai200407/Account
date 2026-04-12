@@ -179,26 +179,17 @@ export async function POST(request: NextRequest) {
 
       // 2. 回滚库存 + 成本联动
       for (const item of returnItems) {
-        // 2a. 读取当前商品的成本和库存
+        // 2a. 读取当前商品的成本
         const product = await tx.product.findFirst({
           where: { id: item.productId, tenantId: auth.tenantId },
-          select: { costPrice: true, stockValue: true, stock: true },
+          select: { costPrice: true },
         })
         if (!product) throw new Error("商品不存在或无权限")
 
         // 2b. 按原销售成本价计算退回金额
         const { costRefund } = calculateReturnCost(item.costPrice, item.quantity)
 
-        // 2c. 更新商品库存金额（stock 由 createStockMovement 处理）
-        const newStockValue = Number(product.stockValue) + costRefund
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stockValue: newStockValue,
-          },
-        })
-
-        // 2d. 创建库存流水，带上 costPrice 和 stockValueAfter
+        // 2c. 创建库存流水，stock 和 stockValue 同一事务原子更新
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
           productId: item.productId,
@@ -210,7 +201,7 @@ export async function POST(request: NextRequest) {
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
           costPrice: item.costPrice,
-          stockValueAfter: newStockValue,
+          stockValueDelta: costRefund,
         })
       }
 

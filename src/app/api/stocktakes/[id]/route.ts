@@ -74,23 +74,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const diffItems = order.items.filter((i) => i.diffQty !== null && i.diffQty !== 0)
 
     await prisma.$transaction(async (tx) => {
-      // 为每个有差异的商品：计算成本变动 → 更新 stockValue → 创建 StockMovement
+      // 为每个有差异的商品：计算成本变动 → 创建 StockMovement（stockValue 原子更新）
       for (const item of diffItems) {
         const currentProduct = await tx.product.findUnique({
           where: { id: item.productId },
-          select: { costPrice: true, stockValue: true, stock: true },
+          select: { costPrice: true },
         })
         if (!currentProduct) throw new Error(`商品 ${item.productId} 不存在`)
 
         const costPrice = Number(currentProduct.costPrice ?? 0)
-        const stockValue = Number(currentProduct.stockValue ?? 0)
         const { stockValueChange } = calculateAdjustmentCost(costPrice, item.diffQty!)
-        const newStockValue = stockValue + stockValueChange
-
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stockValue: newStockValue },
-        })
 
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
@@ -104,7 +97,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
           costPrice,
-          stockValueAfter: newStockValue,
+          stockValueDelta: stockValueChange,
         })
       }
 
@@ -215,23 +208,16 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       const diffItems = order.items.filter((i) => i.diffQty !== null && i.diffQty !== 0)
 
       await prisma.$transaction(async (tx) => {
-        // 为每个有差异的商品：计算成本变动 → 更新 stockValue → 创建 adjustment 流水
+        // 为每个有差异的商品：计算成本变动 → 创建 adjustment 流水（stockValue 原子更新）
         for (const item of diffItems) {
           const currentProduct = await tx.product.findUnique({
             where: { id: item.productId },
-            select: { costPrice: true, stockValue: true, stock: true },
+            select: { costPrice: true },
           })
           if (!currentProduct) throw new Error(`商品 ${item.productId} 不存在`)
 
           const costPrice = Number(currentProduct.costPrice ?? 0)
-          const stockValue = Number(currentProduct.stockValue ?? 0)
           const { stockValueChange } = calculateAdjustmentCost(costPrice, item.diffQty!)
-          const newStockValue = stockValue + stockValueChange
-
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stockValue: newStockValue },
-          })
 
           await createStockMovement(tx, {
             tenantId: auth.tenantId,
@@ -245,7 +231,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             operatorId: auth.userId,
             operatorName: auth.userName || "未知用户",
             costPrice,
-            stockValueAfter: newStockValue,
+            stockValueDelta: stockValueChange,
           })
         }
 

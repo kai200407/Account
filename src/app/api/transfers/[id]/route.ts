@@ -64,7 +64,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     await prisma.$transaction(async (tx) => {
       for (const item of order.items) {
-        // 源仓库调出：扣减总库存
+        // 源仓库调出：仅扣减调出仓库库存，不改变 Product.stock
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
           productId: item.productId,
@@ -77,9 +77,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           notes: `调拨出库 (${order.transferNo})`,
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
+          skipProductStockUpdate: true,
         })
 
-        // 目标仓库调入：增加总库存（两者抵消，Product.stock 不变）
+        // 目标仓库调入：仅增加调入仓库库存，不改变 Product.stock
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
           productId: item.productId,
@@ -92,6 +93,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           notes: `调拨入库 (${order.transferNo})`,
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
+          skipProductStockUpdate: true,
         })
       }
 

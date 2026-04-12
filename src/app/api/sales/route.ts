@@ -67,8 +67,7 @@ export async function POST(request: NextRequest) {
     if (!validation.success) {
       return apiError(validation.error, 400)
     }
-    const { customerId, saleType, items, paidAmount, notes, warehouseId } = validation.data
-    const orderDate = body.orderDate
+    const { customerId, saleType, items, paidAmount, notes, warehouseId, orderDate } = validation.data
 
     // 如果指定了客户，验证归属
     if (customerId) {

@@ -45,14 +45,24 @@ export default function TransfersPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
   useEffect(() => {
+    setLoading(true)
+    setError("")
     api<{ items: TransferOrder[]; total: number; totalPages: number }>(`/api/transfers?page=${page}`).then((res) => {
       if (res.success && res.data) {
         setOrders(res.data.items)
         setTotal(res.data.total)
         setTotalPages(res.data.totalPages)
+      } else {
+        setError(res.error ?? "加载失败")
       }
+    }).catch(() => {
+      setError("加载失败")
+    }).finally(() => {
+      setLoading(false)
     })
   }, [page])
 
@@ -85,7 +95,15 @@ export default function TransfersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">加载中...</TableCell>
+                </TableRow>
+              ) : error ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-red-500">{error}</TableCell>
+                </TableRow>
+              ) : orders.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">暂无调拨记录</TableCell>
                 </TableRow>
@@ -109,7 +127,17 @@ export default function TransfersPage() {
                       ))}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">已完成</Badge>
+                      <Badge
+                        variant="secondary"
+                        className={
+                          o.status === "completed" ? "bg-green-100 text-green-800" :
+                          o.status === "pending" ? "bg-yellow-100 text-yellow-800" :
+                          o.status === "cancelled" ? "bg-red-100 text-red-800" :
+                          "bg-gray-100 text-gray-800"
+                        }
+                      >
+                        {o.status === "completed" ? "已完成" : o.status === "pending" ? "待处理" : o.status === "cancelled" ? "已取消" : o.status}
+                      </Badge>
                     </TableCell>
                     <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{o.operatorName}</TableCell>
                   </TableRow>

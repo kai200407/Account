@@ -141,9 +141,9 @@ export async function POST(request: NextRequest) {
       })
 
       // 创建库存流水：从调出仓库减 + 调入仓库加
-      // 注意：Product.stock 总量不变，所以 transfer_out 和 transfer_in 互相抵消
+      // 注意：调拨不改变 Product.stock 总量，skipProductStockUpdate 只更新仓库库存
       for (const item of transferItems) {
-        // 调出：扣减总库存
+        // 调出：仅扣减调出仓库库存
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
           productId: item.productId,
@@ -155,8 +155,9 @@ export async function POST(request: NextRequest) {
           refNo: order.transferNo,
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
+          skipProductStockUpdate: true,
         })
-        // 调入：增加总库存（两者抵消，Product.stock 不变）
+        // 调入：仅增加调入仓库库存
         await createStockMovement(tx, {
           tenantId: auth.tenantId,
           productId: item.productId,
@@ -168,6 +169,7 @@ export async function POST(request: NextRequest) {
           refNo: order.transferNo,
           operatorId: auth.userId,
           operatorName: auth.userName || "未知用户",
+          skipProductStockUpdate: true,
         })
       }
 

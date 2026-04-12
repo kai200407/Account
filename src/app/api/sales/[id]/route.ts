@@ -103,6 +103,9 @@ async function cancelSaleOrder(
 
     // 2. 回滚库存（通过库存流水）
     for (const item of order.items) {
+      // 回滚库存金额：取消销售时，库存金额恢复 = 销售时的成本价 × 数量
+      const stockValueDelta = Number(item.costPrice) * item.quantity
+
       await createStockMovement(tx, {
         tenantId: auth.tenantId,
         productId: item.productId,
@@ -115,6 +118,8 @@ async function cancelSaleOrder(
         notes: "取消销售单",
         operatorId: auth.userId,
         operatorName: auth.userName || "未知用户",
+        costPrice: Number(item.costPrice),
+        stockValueDelta,
       })
     }
 
@@ -310,19 +315,11 @@ async function updateSaleOrder(
       if (!product) throw new Error("商品不存在")
 
       const currentCostPrice = Number(product.costPrice)
-      const currentStockValue = Number(product.stockValue)
 
       // 计算销售成本
       const { stockValueReduction } = calculateSaleCost(currentCostPrice, item.quantity)
-      const newStockValue = currentStockValue - stockValueReduction
 
-      // 更新 Product 的库存金额
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stockValue: newStockValue },
-      })
-
-      // 扣减库存（通过库存流水）
+      // 扣减库存（通过库存流水，stockValueDelta 原子更新库存金额）
       await createStockMovement(tx, {
         tenantId: auth.tenantId,
         productId: item.productId,
@@ -335,7 +332,7 @@ async function updateSaleOrder(
         operatorId: auth.userId,
         operatorName: auth.userName || "未知用户",
         costPrice: currentCostPrice,
-        stockValueAfter: newStockValue,
+        stockValueDelta: -stockValueReduction,
       })
     }
 

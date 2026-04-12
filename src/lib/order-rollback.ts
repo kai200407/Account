@@ -4,7 +4,7 @@
  */
 
 import { createStockMovement } from "@/lib/stock"
-import { calculateReturnCost, calculateAdjustmentCost } from "@/lib/cost-calculation"
+import { calculateReturnCost } from "@/lib/cost-calculation"
 
 // Prisma 事务客户端类型
 type TxClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0]
@@ -40,27 +40,17 @@ export async function rollbackSaleItems(
   operatorName: string,
 ): Promise<void> {
   for (const item of items) {
-    // 1. 读取当前商品信息
+    // 1. 读取当前商品信息（验证存在性）
     const product = await tx.product.findFirst({
       where: { id: item.productId, tenantId },
-      select: { costPrice: true, stockValue: true },
+      select: { id: true },
     })
     if (!product) throw new Error(`回滚失败：商品 ${item.productId} 不存在`)
 
-    const currentCostPrice = Number(product.costPrice)
-    const currentStockValue = Number(product.stockValue)
-
     // 2. 计算库存金额恢复量（使用销售时的成本价）
     const { costRefund } = calculateReturnCost(item.costPrice, item.quantity)
-    const newStockValue = currentStockValue + costRefund
 
-    // 3. 更新库存金额
-    await tx.product.update({
-      where: { id: item.productId },
-      data: { stockValue: newStockValue },
-    })
-
-    // 4. 回滚库存数量（通过库存流水）
+    // 3. 回滚库存数量和金额（通过库存流水原子更新）
     await createStockMovement(tx, {
       tenantId,
       productId: item.productId,
@@ -74,7 +64,7 @@ export async function rollbackSaleItems(
       operatorId,
       operatorName,
       costPrice: item.costPrice,
-      stockValueAfter: newStockValue,
+      stockValueDelta: costRefund,
     })
   }
 }
@@ -125,16 +115,16 @@ export async function rollbackPurchaseItems(
       newCostPrice = 0
     }
 
-    // 4. 更新商品成本价和库存金额
+    // 4. 更新商品成本价（库存金额由 createStockMovement 原子更新）
     await tx.product.update({
       where: { id: item.productId },
       data: {
         costPrice: newCostPrice,
-        stockValue: Math.max(0, newStockValue),
       },
     })
 
-    // 5. 回滚库存数量（通过库存流水）
+    // 5. 回滚库存数量和金额（通过库存流水原子更新）
+    const stockValueDelta = -incomingAmount
     await createStockMovement(tx, {
       tenantId,
       productId: item.productId,
@@ -148,7 +138,7 @@ export async function rollbackPurchaseItems(
       operatorId,
       operatorName,
       costPrice: newCostPrice,
-      stockValueAfter: Math.max(0, newStockValue),
+      stockValueDelta,
     })
 
     // 6. 回滚批次追踪：删除本次进货创建的批次

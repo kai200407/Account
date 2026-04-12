@@ -146,22 +146,30 @@ export default function StatementsPage() {
     }
   }
 
+  function csvEscape(field: unknown): string {
+    const str = String(field ?? "")
+    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+
   function handleExportExcel() {
     if (!statement) return
 
     const debitLabel = stmtType === "supplier" ? "应付" : "应收"
     const creditLabel = stmtType === "supplier" ? "实付" : "实收"
 
-    const header = `日期,单据号,摘要,${debitLabel},${creditLabel},余额`
+    const header = [csvEscape("日期"), csvEscape("单据号"), csvEscape("摘要"), csvEscape(debitLabel), csvEscape(creditLabel), csvEscape("余额")].join(",")
     const rows = statement.lines.map(
-      (l) => `${l.date},${l.docNo},${l.summary},${l.debit},${l.credit},${l.balance}`
+      (l) => [csvEscape(l.date), csvEscape(l.docNo), csvEscape(l.summary), csvEscape(l.debit), csvEscape(l.credit), csvEscape(l.balance)].join(",")
     )
 
     const summaryRows = [
-      `,,期初余额,,,${statement.openingBalance}`,
-      `,,本期${debitLabel}合计,${statement.periodDebit},,`,
-      `,,本期${creditLabel}合计,,${statement.periodCredit},`,
-      `,,期末余额,,,${statement.closingBalance}`,
+      [csvEscape(""), csvEscape(""), csvEscape("期初余额"), csvEscape(""), csvEscape(""), csvEscape(statement.openingBalance)].join(","),
+      [csvEscape(""), csvEscape(""), csvEscape(`本期${debitLabel}合计`), csvEscape(statement.periodDebit), csvEscape(""), csvEscape("")].join(","),
+      [csvEscape(""), csvEscape(""), csvEscape(`本期${creditLabel}合计`), csvEscape(""), csvEscape(statement.periodCredit), csvEscape("")].join(","),
+      [csvEscape(""), csvEscape(""), csvEscape("期末余额"), csvEscape(""), csvEscape(""), csvEscape(statement.closingBalance)].join(","),
     ]
 
     const csv = "\uFEFF" + [header, ...rows, "", ...summaryRows].join("\n")

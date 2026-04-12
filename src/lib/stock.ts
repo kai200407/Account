@@ -43,6 +43,8 @@ export interface CreateStockMovementParams {
   stockValueAfter?: number
   /** 库存金额变动量（正数增加，负数减少），与 quantity 在同一 updateMany 中原子更新 */
   stockValueDelta?: number
+  /** 跳过 Product.stock 更新（仅更新 WarehouseStock），用于调拨操作 */
+  skipProductStockUpdate?: boolean
 }
 
 /**
@@ -78,6 +80,7 @@ export async function createStockMovement(
     costPrice,
     stockValueAfter,
     stockValueDelta,
+    skipProductStockUpdate = false,
   } = params
 
   if (quantity === 0) {
@@ -91,6 +94,44 @@ export async function createStockMovement(
   })
   if (!product) {
     throw new Error("商品不存在或无权限")
+  }
+
+  const currentProduct = await tx.product.findUnique({
+    where: { id: productId },
+    select: { stock: true, stockValue: true },
+  })
+
+  if (skipProductStockUpdate) {
+    // 调拨操作：不修改 Product.stock，只创建流水记录和更新仓库库存
+    if (!currentProduct) {
+      throw new Error("商品不存在")
+    }
+
+    const movement = await tx.stockMovement.create({
+      data: {
+        tenantId,
+        productId,
+        warehouseId: warehouseId ?? null,
+        type,
+        quantity,
+        balanceAfter: currentProduct.stock, // 总库存不变
+        costPrice: costPrice ?? null,
+        stockValueAfter: stockValueAfter ?? Number(currentProduct.stockValue) ?? null,
+        refType: refType ?? null,
+        refId: refId ?? null,
+        refNo: refNo ?? null,
+        notes: notes ?? null,
+        operatorId,
+        operatorName,
+      },
+    })
+
+    // 更新仓库库存
+    if (warehouseId) {
+      await updateWarehouseStock(tx, warehouseId, productId, tenantId, quantity)
+    }
+
+    return movement
   }
 
   // 原子更新 stock + stockValue（二者在同一个 updateMany 中完成，避免并发不一致）

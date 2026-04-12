@@ -17,6 +17,7 @@ export const purchaseOrderSchema = z.object({
   })).min(1, '至少需要一个商品'),
   paidAmount: z.number().nonnegative().optional(),
   notes: z.string().max(500).optional(),
+  orderDate: z.string().refine((val) => !isNaN(Date.parse(val)), '日期格式不正确').optional(),
 })
 
 // 销售单校验
@@ -31,6 +32,7 @@ export const saleOrderSchema = z.object({
   })).min(1, '至少需要一个商品'),
   paidAmount: z.number().nonnegative().optional(),
   notes: z.string().max(500).optional(),
+  orderDate: z.string().refine((val) => !isNaN(Date.parse(val)), '日期格式不正确').optional(),
 })
 
 // 收付款校验

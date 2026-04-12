@@ -79,6 +79,17 @@ async function cancelPurchaseOrder(
   if (order.status === "cancelled") return apiError("该订单已取消")
   if (order.status !== "completed") return apiError("只能取消已完成的订单")
 
+  // 检查库存是否充足（取消进货会扣减库存）
+  for (const item of order.items) {
+    const product = await prisma.product.findFirst({
+      where: { id: item.productId, tenantId: auth.tenantId },
+      select: { name: true, stock: true },
+    })
+    if (product && product.stock < item.quantity) {
+      return apiError(`「${product.name}」已有部分售出，库存不足，无法取消该进货单。请先处理相关销售记录`)
+    }
+  }
+
   // 事务：取消订单 + 回滚库存 + 回滚供应商余额
   await prisma.$transaction(async (tx) => {
     // 1. 标记订单为已取消
@@ -89,6 +100,9 @@ async function cancelPurchaseOrder(
 
     // 2. 回滚库存（通过库存流水）
     for (const item of order.items) {
+      // 回滚库存金额：取消进货时，库存金额扣减 = 进货单价 × 数量（负数）
+      const stockValueDelta = -(Number(item.unitPrice) * item.quantity)
+
       await createStockMovement(tx, {
         tenantId: auth.tenantId,
         productId: item.productId,
@@ -101,6 +115,7 @@ async function cancelPurchaseOrder(
         notes: "取消采购单",
         operatorId: auth.userId,
         operatorName: auth.userName || "未知用户",
+        stockValueDelta,
       })
     }
 
@@ -270,17 +285,17 @@ async function updatePurchaseOrder(
         incomingPrice: item.unitPrice,
       })
 
-      // 更新商品成本价、库存金额、最近进价
+      // 更新商品成本价和最近进价（库存金额由 createStockMovement 原子更新）
       await tx.product.update({
         where: { id: item.productId },
         data: {
           costPrice: costResult.newCostPrice,
-          stockValue: costResult.newStockValue,
           lastCostPrice: item.unitPrice,
         },
       })
 
-      // 创建库存流水
+      // 创建库存流水（stockValueDelta 原子更新库存金额）
+      const incomingAmount = costResult.newStockValue - Number(product.stockValue)
       await createStockMovement(tx, {
         tenantId: auth.tenantId,
         productId: item.productId,
@@ -293,7 +308,7 @@ async function updatePurchaseOrder(
         operatorId: auth.userId,
         operatorName: auth.userName || "未知用户",
         costPrice: costResult.newCostPrice,
-        stockValueAfter: costResult.newStockValue,
+        stockValueDelta: incomingAmount,
       })
 
       // 批次追踪：创建批次记录

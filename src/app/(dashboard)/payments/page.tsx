@@ -116,6 +116,10 @@ export default function PaymentsPage() {
       toast.error("请输入金额")
       return
     }
+    if (amt > formMaxAmount) {
+      toast.error("金额不能超过欠款上限")
+      return
+    }
 
     setFormLoading(true)
     try {

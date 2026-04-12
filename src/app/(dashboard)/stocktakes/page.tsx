@@ -41,14 +41,24 @@ export default function StocktakesPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
   const fetchOrders = useCallback(() => {
+    setLoading(true)
+    setError("")
     api<{ items: StocktakeOrder[]; total: number; totalPages: number }>(`/api/stocktakes?page=${page}`).then((res) => {
       if (res.success && res.data) {
         setOrders(res.data.items)
         setTotal(res.data.total)
         setTotalPages(res.data.totalPages)
+      } else {
+        setError(res.error ?? "加载失败")
       }
+    }).catch(() => {
+      setError("加载失败")
+    }).finally(() => {
+      setLoading(false)
     })
   }, [page])
 
@@ -96,7 +106,15 @@ export default function StocktakesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">加载中...</TableCell>
+                </TableRow>
+              ) : error ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-red-500">{error}</TableCell>
+                </TableRow>
+              ) : orders.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">暂无盘点记录</TableCell>
                 </TableRow>

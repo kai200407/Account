@@ -191,14 +191,14 @@ export default function DashboardPage() {
             <span className="text-muted-foreground">今日</span>
             <div className="flex items-center gap-4">
               <span>
-                销售 <b>¥{data?.todayRevenue.toFixed(0) ?? "0"}</b>
+                销售 <b>¥{(data?.todayRevenue ?? 0).toFixed(0)}</b>
               </span>
               <span>
                 <b>{data?.todayOrders ?? 0}</b> 笔
               </span>
               {isOwner && (
                 <span className="text-green-600">
-                  利润 <b>¥{data?.todayProfit.toFixed(0) ?? "0"}</b>
+                  利润 <b>¥{(data?.todayProfit ?? 0).toFixed(0)}</b>
                 </span>
               )}
               {(data?.lowStockCount ?? 0) > 0 && (

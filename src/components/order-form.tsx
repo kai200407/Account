@@ -513,7 +513,7 @@ export function OrderForm({ type }: OrderFormProps) {
 
                     {/* 小计 */}
                     <span className="text-sm font-medium w-16 text-right shrink-0">
-                      ¥{item.subtotal.toFixed(0)}
+                      ¥{item.subtotal.toFixed(2)}
                     </span>
 
                     <Button

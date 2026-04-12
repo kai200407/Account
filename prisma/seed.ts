@@ -47,6 +47,7 @@ async function main() {
         wholesalePrice: 220,
         retailPrice: 298,
         stock: 50,
+        stockValue: 150 * 50,
       },
     }),
     prisma.product.create({
@@ -60,6 +61,7 @@ async function main() {
         wholesalePrice: 260,
         retailPrice: 350,
         stock: 30,
+        stockValue: 180 * 30,
       },
     }),
     prisma.product.create({
@@ -73,6 +75,7 @@ async function main() {
         wholesalePrice: 130,
         retailPrice: 188,
         stock: 100,
+        stockValue: 85 * 100,
       },
     }),
   ])

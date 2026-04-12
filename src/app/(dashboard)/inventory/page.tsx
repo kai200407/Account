@@ -232,7 +232,7 @@ export default function InventoryPage() {
           <Button variant="outline" size="icon" onClick={handleSearch}>
             <Search className="h-4 w-4" />
           </Button>
-          {selectedProductId && selectedProductId !== "__no_match__" && (
+          {selectedProductId && (
             <Button variant="ghost" size="sm" onClick={clearSearch}>
               清除筛选
             </Button>
